@@ -1,0 +1,15 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "default_agent": "scraper",
+  "agents": {
+    "scraper": {
+      "description": "Runs and maintains the liveworldwebcams.com scraper"
+    },
+    "db-analyst": {
+      "description": "Queries and analyzes the webcam SQLite database"
+    },
+    "reviewer": {
+      "description": "Reviews scraper changes for correctness and ethics"
+    }
+  }
+}

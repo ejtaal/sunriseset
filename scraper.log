@@ -1,0 +1,38 @@
+2026-10-28 15:13:39 [INFO] ============================================================
+2026-10-28 15:13:39 [INFO] Live World Webcams Scraper (static metadata)
+2026-10-28 15:13:39 [INFO] ============================================================
+2026-10-28 15:13:39 [INFO] Fetching sitemap index …
+2026-10-28 15:13:41 [INFO] Found 9 sitemap files
+2026-10-28 15:13:41 [INFO] Fetching https://liveworldwebcams.com/addl-sitemap.xml …
+2026-10-28 15:13:42 [INFO]   → 5 entries
+2026-10-28 15:13:42 [INFO] Fetching https://liveworldwebcams.com/post-sitemap.xml …
+2026-10-28 15:13:44 [INFO]   → 1000 entries
+2026-10-28 15:13:44 [INFO] Fetching https://liveworldwebcams.com/post-sitemap2.xml …
+2026-10-28 15:13:45 [INFO]   → 591 entries
+2026-10-28 15:13:45 [INFO] Fetching https://liveworldwebcams.com/page-sitemap.xml …
+2026-10-28 15:13:46 [INFO]   → 12 entries
+2026-10-28 15:13:46 [INFO] Fetching https://liveworldwebcams.com/lww_article-sitemap.xml …
+2026-10-28 15:13:47 [INFO]   → 23 entries
+2026-10-28 15:13:47 [INFO] Fetching https://liveworldwebcams.com/post-archive-sitemap.xml …
+2026-10-28 15:13:48 [INFO]   → 1 entries
+2026-10-28 15:13:48 [INFO] Fetching https://liveworldwebcams.com/category-sitemap.xml …
+2026-10-28 15:13:50 [INFO]   → 221 entries
+2026-10-28 15:13:50 [INFO] Fetching https://liveworldwebcams.com/post_tag-sitemap.xml …
+2026-10-28 15:13:54 [INFO]   → 291 entries
+2026-10-28 15:13:54 [INFO] Fetching https://liveworldwebcams.com/article_category-sitemap.xml …
+2026-10-28 15:13:55 [INFO]   → 4 entries
+2026-10-28 15:13:55 [INFO] Total unique URLs: 2145
+2026-10-28 15:13:55 [INFO] Filtered: 2145 → 2123 webcam pages
+2026-10-28 15:13:55 [INFO] Limiting to first 5 entries
+2026-10-28 15:13:55 [INFO] Database: /tmp/lww_webcams.db
+2026-10-28 15:13:55 [INFO] Existing records: 1929
+2026-10-28 15:13:55 [DEBUG] [2/5] https://liveworldwebcams.com/warsaw-webcam/
+2026-10-28 15:13:55 [DEBUG] [3/5] https://liveworldwebcams.com/honeycomb-canyon-webcam-utah/
+2026-10-28 15:13:55 [DEBUG] [4/5] https://liveworldwebcams.com/thermal-waters-kosino-ukraine-live-webcam/
+2026-10-28 15:13:55 [DEBUG] [5/5] https://liveworldwebcams.com/dotonbori-osaka-live-webcam-japan/
+2026-10-28 15:13:55 [DEBUG] [6/5] https://liveworldwebcams.com/trudeau-airport-webcam/
+2026-10-28 15:13:55 [INFO] Progress: 5/5 (100.0%) — success=0 failed=0 skipped=5 — 0.0 pages/min, ETA ~0m
+2026-10-28 15:13:55 [INFO] 
+============================================================
+2026-10-28 15:13:55 [INFO] COMPLETE
+2026-10-28 15:13:55 [INFO] ============================================================
