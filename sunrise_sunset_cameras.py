@@ -497,6 +497,7 @@ def main():
 
     parser = argparse.ArgumentParser(description="Webcam sunrise/sunset finder")
     parser.add_argument("--classify", type=int, default=0, help="Run N iterations to classify streams (no feh)")
+    parser.add_argument("--overwrite", action="store_true", help="Re-classify even if descriptions already exist")
     args = parser.parse_args()
 
     # Set up logging to file (and stdout)
@@ -561,12 +562,18 @@ def main():
     classified_ids = set()
     unclassified_ids = set()
     expired_count = 0
-    for _, row in matches.iterrows():
-        vid = str(row["video_id"])
-        if _has_description(conn, vid):
-            classified_ids.add(vid)
-        else:
-            unclassified_ids.add(vid)
+    if args.overwrite:
+        # Force re-classification of all matching streams
+        for _, row in matches.iterrows():
+            unclassified_ids.add(str(row["video_id"]))
+        logger.info("  --overwrite: re-classifying all matching streams (ignoring existing descriptions)")
+    else:
+        for _, row in matches.iterrows():
+            vid = str(row["video_id"])
+            if _has_description(conn, vid):
+                classified_ids.add(vid)
+            else:
+                unclassified_ids.add(vid)
 
     # Count how many unclassified have expired descriptions (vs no description at all)
     for vid in unclassified_ids:
@@ -577,7 +584,8 @@ def main():
         if row and row[0] and row[0] != '' and row[1]:
             expired_count += 1
 
-    logger.info(f"\nAlready classified: {len(classified_ids)} | Expired (>60d): {expired_count} | Need classification: {len(unclassified_ids)}")
+    prefix = "[OVERWRITE] " if args.overwrite else ""
+    logger.info(f"\n{prefix}Already classified: {len(classified_ids)} | Expired (>60d): {expired_count} | Need classification: {len(unclassified_ids)}")
     logger.info(f"Rounds to run: {num_rounds}")
 
     success_count = 0
