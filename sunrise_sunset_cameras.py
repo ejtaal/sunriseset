@@ -384,10 +384,11 @@ def grab_live_frame(video_id: str, title: str = ""):
             os.remove(tmp_ytdlp_log)
 
 
-def describe_frame(frame_path: str) -> str | None:
+def describe_frame(frame_path: str, retry: int = 0) -> str | None:
     """
     Send a frame to the vision API and return an AI-generated description.
     Image resized to max 640x480 before sending. Returns None on failure.
+    max_tokens doubles with each retry (4096 → 8192 → 16384).
     """
     try:
         with Image.open(frame_path) as img:
@@ -395,6 +396,9 @@ def describe_frame(frame_path: str) -> str | None:
             buf = BytesIO()
             img.save(buf, format="JPEG", quality=75)
             img_b64 = base64.b64encode(buf.getvalue()).decode()
+
+        # Double max_tokens with each retry: 4096, 8192, 16384
+        max_tokens = 4096 * (2 ** retry)
 
         payload = {
             "model": VISION_MODEL,
@@ -413,7 +417,7 @@ def describe_frame(frame_path: str) -> str | None:
                     ]
                 }
             ],
-            "max_tokens": 4096
+            "max_tokens": max_tokens
         }
 
         req = urllib.request.Request(
@@ -697,13 +701,13 @@ def main():
             import time as _time
             _t0 = _time.time()
 
-            # Retry AI description up to 3 times
+            # Retry AI description up to 3 times (max_tokens doubles: 4096 → 8192 → 16384)
             desc = None
             for _attempt in range(3):
                 if _attempt > 0:
-                    logger.info(f"  Retrying AI description (attempt {_attempt + 1}/3) …")
+                    logger.info(f"  Retrying AI description (attempt {_attempt + 1}/3, max_tokens={4096 * (2 ** _attempt)}) …")
                     time.sleep(3)
-                desc = describe_frame(round_result["frame_path"])
+                desc = describe_frame(round_result["frame_path"], retry=_attempt)
                 if desc:
                     break
 
