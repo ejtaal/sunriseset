@@ -43,6 +43,8 @@ from PIL import Image
 # ---------------------------------------------------------------------------
 VISION_API_URL = "http://10.0.2.2:8080/upstream/unsloth-Qwen3.6-35B-A3B-standard/v1/chat/completions"
 VISION_MODEL = "unsloth/Qwen3.6-35B-A3B-GGUF:Q4_K_XL"
+LLM_API_URL = VISION_API_URL
+LLM_MODEL = VISION_MODEL
 
 
 def _has_description(conn, video_id: str) -> bool:
@@ -417,6 +419,57 @@ def describe_frame(frame_path: str) -> str | None:
         return None
 
 
+def assess_view_quality(description: str) -> int | None:
+    """Score a webcam view quality 1-10 from the AI description."""
+    try:
+        payload = {
+            "model": LLM_MODEL,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": f"""Assess this webcam's view quality on a scale of 1-10 based on the AI description below.
+
+Criteria:
+- **Sky visibility** — how much of the sky is visible (clear sky, partial, blocked, none)
+- **Landscape/city inclusion** — does the frame show meaningful surroundings vs just a wall/ceiling
+- **FOV width** — wide panoramic view vs narrow/tight framing
+- **Clarity** — is the scene sharp and detailed vs blurry/muddy
+
+Scoring:
+- 9-10: Wide FOV, excellent sky visibility, rich landscape/city, sharp
+- 7-8: Good FOV, sky visible, good surroundings, reasonably sharp
+- 5-6: Moderate FOV, some sky, basic surroundings, adequate clarity
+- 3-4: Narrow FOV, limited sky, mostly foreground, poor clarity
+- 1-2: Very narrow/tight, no sky, blocked view, very poor clarity
+
+Output ONLY a number 1-10. No explanation.
+
+Description:
+{description}"""
+                }
+            ],
+            "max_tokens": 4,
+            "temperature": 0,
+        }
+        req = urllib.request.Request(
+            LLM_API_URL,
+            data=__import__("json").dumps(payload).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = __import__("json").loads(resp.read())
+            text = data["choices"][0]["message"]["content"].strip()
+            for c in text:
+                if c.isdigit():
+                    val = int(c)
+                    if 1 <= val <= 10:
+                        return val
+            return None
+    except Exception:
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -597,12 +650,19 @@ def main():
             logger.info("  Generating AI description …")
             desc = describe_frame(round_result["frame_path"])
             if desc:
-                conn.execute("UPDATE webcams SET ai_description = ? WHERE video_id = ?", (desc, video_id))
+                # Auto-assess view quality from description
+                vq = assess_view_quality(desc)
+                conn.execute(
+                    "UPDATE webcams SET ai_description = ?, view_quality = ? WHERE video_id = ?",
+                    (desc, vq, video_id),
+                )
                 _record_review(conn, video_id)
                 conn.commit()
                 classified_ids.add(video_id)
                 logger.info(f"  Description stored (len={len(desc)})")
-                logger.info(f"  Description: {desc}")
+                if vq:
+                    logger.info(f"  View quality:   {vq}/10")
+                logger.info(f"  Description:    {desc}")
                 # Track for summary
                 rowid = conn.execute("SELECT rowid FROM webcams WHERE video_id = ?", (video_id,)).fetchone()[0]
                 classified_this_session.append((rowid, video_id, picked['title']))
