@@ -9,6 +9,7 @@ Scrapes **liveworldwebcams.com** and **webcamlivestream.com**, stores webcam met
 - Sunrise/sunset finder: calculates sun position for each webcam
 - Live frame grabbing: captures actual stream frames via yt-dlp
 - Reliability tracking: scores stream reliability over time
+- AI descriptions: describes each successfully captured frame
 
 ## Database Schema
 
@@ -34,7 +35,8 @@ CREATE TABLE webcams (
     source               TEXT,            -- 'liveworldwebcams.com' or 'webcamlivestream.com'
     reliability          INTEGER DEFAULT 5, -- stream reliability 0-10 (+1 success, -1 failure/black)
     view_quality         INTEGER,         -- view quality (manual assessment, not auto-populated)
-    highest_resolution   TEXT             -- highest captured resolution, e.g. '1920x1080'
+    highest_resolution   TEXT,            -- highest captured resolution, e.g. '1920x1080'
+    ai_description       TEXT             -- AI-generated description of latest captured frame
 );
 ```
 
@@ -147,6 +149,19 @@ Not auto-populated. Assessed manually over time based on:
 - **Clarity** — image sharpness and detail
 
 Values are assigned manually by reviewing the captured frames.
+
+### AI Description (column: `ai_description`, NULL or TEXT)
+
+Populated automatically by the OpenCode vision model after each successful
+screengrab. Describes the scene in detail including:
+
+- Landscape/setting (river, mountains, city, etc.)
+- Sky conditions and lighting (sunset colors, clouds, etc.)
+- Foreground and background elements
+- Seasonal indicators (foliage, snow, etc.)
+- FOV assessment (how much sky, how wide the view)
+
+The latest captured frame is saved to `/tmp/wls_latest_frame.jpg` after each run.
 
 ## Dependencies
 

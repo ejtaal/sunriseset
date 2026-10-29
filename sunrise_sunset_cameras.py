@@ -19,6 +19,7 @@ Requires: pandas, Pillow, yt-dlp, ffmpeg, feh
 import math
 import os
 import re
+import shutil
 import sqlite3
 import subprocess
 import tempfile
@@ -106,6 +107,7 @@ def _sun_position(utc_dt: datetime, lat: float, lon: float) -> dict:
 # Database helpers
 # ---------------------------------------------------------------------------
 DB_PATH = "/tmp/lww_webcams.db"
+LATEST_FRAME_PATH = os.path.join(tempfile.gettempdir(), "wls_latest_frame.jpg")
 
 
 def _get_reliability(conn, video_id: str) -> int:
@@ -198,19 +200,33 @@ def _is_black_or_frozen(image_path: str) -> bool:
     """
     try:
         img = Image.open(image_path).convert("RGB")
-        # Use numpy-style flattening for efficiency; fall back for older Pillow
-        try:
-            pixels = list(img.get_flattened_data("RGB"))
-        except AttributeError:
-            pixels = list(img.getdata())
-        width, height = img.size
 
-        # Check average brightness — if very dark, likely black/frozen
+        # Use numpy if available for fast analysis
+        try:
+            import numpy as np
+            arr = np.array(img)
+            avg_brightness = arr.mean()
+            if avg_brightness < 10:
+                return True
+            variances = [arr[:, :, c].var() for c in range(3)]
+            if np.mean(variances) < 25:
+                return True
+            return False
+        except ImportError:
+            pass
+
+        # Fallback: sample every Nth pixel to avoid processing full 1080p image
+        w, h = img.size
+        step = max(1, max(w, h) // 50)  # ~50 samples per dimension
+        pixels = []
+        for y in range(0, h, step):
+            for x in range(0, w, step):
+                pixels.append(img.getpixel((x, y)))
+
         avg_brightness = sum(sum(p) / 3 for p in pixels) / len(pixels)
-        if avg_brightness < 8:
+        if avg_brightness < 10:
             return True
 
-        # Check variance — frozen/black frames have very low variance
         r_vals = [p[0] for p in pixels]
         g_vals = [p[1] for p in pixels]
         b_vals = [p[2] for p in pixels]
@@ -219,28 +235,9 @@ def _is_black_or_frozen(image_path: str) -> bool:
             mean = sum(vals) / len(vals)
             return sum((v - mean) ** 2 for v in vals) / len(vals)
 
-        r_var = _variance(r_vals)
-        g_var = _variance(g_vals)
-        b_var = _variance(b_vals)
-        avg_var = (r_var + g_var + b_var) / 3
-
-        # Very low variance (especially < 10) means frozen/still image
-        if avg_var < 10:
+        avg_var = (_variance(r_vals) + _variance(g_vals) + _variance(b_vals)) / 3
+        if avg_var < 25:
             return True
-
-        # Check for large areas of uniform color (e.g., black overlay)
-        # Sample the center 50% of the image
-        cx, cy = width // 2, height // 2
-        quarter = max(width, height) // 4
-        center_region = []
-        for y in range(cy - quarter, cy + quarter):
-            for x in range(cx - quarter, cx + quarter):
-                if 0 <= x < width and 0 <= y < height:
-                    center_region.append(img.getpixel((x, y)))
-        if center_region:
-            center_avg = sum(sum(p) / 3 for p in center_region) / len(center_region)
-            if center_avg < 5:
-                return True
 
         return False
 
@@ -289,16 +286,23 @@ def grab_live_frame(video_id: str):
             return {"frame_path": None, "resolution": None, "is_black": None}
 
         # Extract single frame at ~1 second into the clip
-        result = os.system(
+        ret = os.system(
             f'ffmpeg -y -i "{tmp_mp4}" -ss 00:00:01 -frames:v 1 -q:v 1 -update 1 '
             f'"{tmp_jpg}" 2>/dev/null'
         )
 
-        if result != 0 or not os.path.isfile(tmp_jpg) or os.path.getsize(tmp_jpg) < 1000:
+        if ret != 0 or not os.path.isfile(tmp_jpg) or os.path.getsize(tmp_jpg) < 1000:
             return {"frame_path": None, "resolution": None, "is_black": None}
 
         resolution = _get_frame_resolution(tmp_jpg)
         is_black = _is_black_or_frozen(tmp_jpg)
+
+        # Copy to persistent path for AI description
+        if tmp_jpg is not None and not is_black:
+            try:
+                shutil.copy2(tmp_jpg, LATEST_FRAME_PATH)
+            except Exception:
+                pass
 
         return {"frame_path": tmp_jpg, "resolution": resolution, "is_black": is_black}
 
