@@ -641,9 +641,6 @@ def main():
             yt_url = f"https://www.youtube.com/watch?v={video_id}"
             all_urls_tried.add(yt_url)
             logger.info(f"  ── {yt_url} ──")
-            logger.info(f"  Title:       {picked['title']}")
-            logger.info(f"  Location:    {picked['country'] or '—'}, {picked['region'] or '—'}")
-            logger.info(f"  Coords:      {picked['lat']:.4f}, {picked['lon']:.4f}")
             logger.info(f"  Sun angle:   {picked['altitude']:.2f}°")
             logger.info(f"  Has desc:    {'yes' if already_classified else 'no'}")
 
