@@ -411,7 +411,7 @@ def describe_frame(frame_path: str) -> str | None:
             method="POST"
         )
 
-        with urllib.request.urlopen(req, timeout=120) as resp:
+        with urllib.request.urlopen(req, timeout=300) as resp:
             data = __import__("json").loads(resp.read())
             return data["choices"][0]["message"]["content"].strip()
 
@@ -595,7 +595,6 @@ def main():
             logger.info(f"  Location:    {picked['country'] or '—'}, {picked['region'] or '—'}")
             logger.info(f"  Coords:      {picked['lat']:.4f}, {picked['lon']:.4f}")
             logger.info(f"  Sun angle:   {picked['altitude']:.2f}°")
-            logger.info(f"  Reliability: {picked['reliability']}/10")
             logger.info(f"  Has desc:    {'yes' if already_classified else 'no'}")
 
             logger.info(f"  Grabbing live frame …")
@@ -607,6 +606,8 @@ def main():
                 and round_result["is_black"] is not None
                 and not round_result["is_black"]
             )
+
+            logger.info(f"  Reliability: {picked['reliability']}/10")
 
             if not round_success:
                 status = "video unavailable"
