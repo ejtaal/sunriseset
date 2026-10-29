@@ -408,7 +408,7 @@ def describe_frame(frame_path: str, retry: int = 0) -> str | None:
                     "content": [
                         {
                             "type": "text",
-                            "text": "Describe this webcam scene in 3-5 sentences. Focus on:\n- Overall setting (coast, city, mountain, etc.)\n- Main visible elements (buildings, water, landscape)\n- Sky conditions and lighting\n- Camera perspective (wide/narrow, high/low angle)\n\nDetermine which of the 8 compass directions has the most empty space suitable for text overlay (N=top, NE=top-right, E=right, SE=bottom-right, S=bottom, SW=bottom-left, W=left, NW=top-left). Output 'FREE_SPACE: ' followed by the direction letter at the very end, on its own line.\n\nNo weather details, no itemized foreground lists. Keep it natural and concise."
+                            "text": "Describe this webcam scene in 3-5 sentences. Focus on:\n- Overall setting (coast, city, mountain, etc.)\n- Main visible elements (buildings, water, landscape)\n- Sky conditions and lighting — estimate sky coverage as a percentage (e.g. 'sky visible in ~70% of frame')\n- Camera perspective (wide/narrow, high/low angle) — note if FOV is wide panoramic or tight\n\nDetermine which of the 8 compass directions has the most empty space suitable for text overlay (N=top, NE=top-right, E=right, SE=bottom-right, S=bottom, SW=bottom-left, W=left, NW=top-left). Output 'FREE_SPACE: ' followed by the direction letter at the very end, on its own line.\n\nNo weather details, no itemized foreground lists. Keep it natural and concise."
                         },
                         {
                             "type": "image_url",
@@ -446,26 +446,18 @@ def assess_view_quality(description: str) -> int | None:
                     "role": "user",
                     "content": f"""Assess this webcam's view quality on a scale of 1-10 based on the AI description below.
 
-Criteria — score ONLY how suitable this view is for watching sunrise/sunset:
+**Quality is proportional to sky visibility percentage and FOV width.**
 
-**Sunrise/sunset relevance (critical):**
-- Does the view show sky, horizon, water, open landscape, or cityscape? → relevant
-- Is it a close-up of objects, walls, feeders, interiors, or meaningless framing? → irrelevant
+Scoring rules — score ONLY how suitable this view is for watching sunrise/sunset:
 
-**Horizon/sky visibility:**
-- Unobstructed sky or horizon line visible
-- Tight framing on buildings/ground with no sky
-
-**FOV width:**
-- Wide panoramic view
-- Narrow/tight framing
-
-**Scoring:**
-- 9-10: Wide horizon/sky, open landscape or cityscape, excellent for sunrise/sunset
-- 7-8: Good sky/horizon visible, suitable for sunrise/sunset viewing
-- 5-6: Some sky/horizon, but limited view or obstructed
-- 3-4: Mostly ground/buildings, very little sky, poor for sunrise/sunset
+- **Sky % × FOV width = quality**
+- 9-10: Sky visible in 70%+ of frame AND wide FOV (panoramic, open landscape/horizon)
+- 7-8: Sky visible in 40-70% of frame OR wide FOV with partial sky
+- 5-6: Sky visible in 20-40% of frame OR moderate FOV with some sky
+- 3-4: Sky visible in 10-20% of frame AND narrow/tight framing
 - 1-2: No sky or horizon — close-up objects, walls, feeders, interiors, parking lots, etc.
+
+The description should contain an estimate of sky coverage (e.g. 'sky visible in ~70% of frame'). Use this to guide your score. Wide FOV with less sky scores higher than narrow FOV with same sky %.
 
 Output ONLY a number 1-10. No explanation.
 
