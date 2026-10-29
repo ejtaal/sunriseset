@@ -682,15 +682,6 @@ def main():
             logger.info("  No working stream found.")
             fail_count += 1
 
-        # Display with feh on every round
-        if round_success and os.path.isfile(round_result["frame_path"]):
-            logger.info(f"\n  Displaying with feh …\n")
-            subprocess.Popen(
-                ["timeout", "300", "feh", "--auto-zoom", "--image-bg", "#333333", round_result["frame_path"]],
-                start_new_session=True,
-                close_fds=True,
-            )
-
         # Pause between rounds
         if rnd < num_rounds:
             logger.info("  Waiting 5s before next round …")
