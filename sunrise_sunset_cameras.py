@@ -309,6 +309,7 @@ def grab_live_frame(video_id: str, title: str = ""):
         result = os.system(
             f'yt-dlp -o "{tmp_mp4}" -f "bestvideo+bestaudio/bestvideo/best" '
             f'--download-sections "*00:00-00:02" '
+            f'--cookies-from-browser chromium '
             f'"https://www.youtube.com/embed/{video_id}?autoplay=1&mute=1" '
             f'>"{tmp_ytdlp_log}" 2>&1'
         )
