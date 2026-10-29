@@ -109,15 +109,15 @@ def _sun_position_core(utc_dt: datetime, lat: float, lon: float) -> dict:
     if hour_angle > 0:
         azimuth = 360.0 - azimuth
 
-    return {"altitude": altitude, "azimuth": azimuth}
+    return {"altitude": altitude, "azimuth": azimuth, "hour_angle": hour_angle}
 
 
 def _sun_position(utc_dt: datetime, lat: float, lon: float) -> dict:
-    """Sun position with rising/setting direction."""
+    """Sun position with rising/setting direction (via hour angle)."""
     pos = _sun_position_core(utc_dt, lat, lon)
-    future_dt = utc_dt + timedelta(seconds=60)
-    future = _sun_position_core(future_dt, lat, lon)
-    pos["is_rising"] = future["altitude"] > pos["altitude"]
+    # hour_angle < 0 → before solar noon → sun rising (east)
+    # hour_angle > 0 → after solar noon → sun setting (west)
+    pos["is_rising"] = pos["hour_angle"] < 0
     return pos
 
 
@@ -550,11 +550,11 @@ def main():
             print("  No working stream found.")
             fail_count += 1
 
-        # Display with feh only on the last round
-        if args.classify > 0 and rnd == num_rounds and os.path.isfile(LATEST_FRAME_PATH):
-            print(f"\n  Displaying last frame with feh …\n")
+        # Display with feh on every round
+        if success and os.path.isfile(result["frame_path"]):
+            print(f"\n  Displaying with feh …\n")
             subprocess.Popen(
-                ["timeout", "300", "feh", "--auto-zoom", "--image-bg", "#333333", LATEST_FRAME_PATH],
+                ["timeout", "300", "feh", "--auto-zoom", "--image-bg", "#333333", result["frame_path"]],
                 start_new_session=True,
                 close_fds=True,
             )
