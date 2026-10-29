@@ -384,7 +384,7 @@ def describe_frame(frame_path: str) -> str | None:
                     "content": [
                         {
                             "type": "text",
-                            "text": "Describe this webcam image in detail: scene, landscape, sky, lighting, season, composition. Keep it under 200 words."
+                            "text": "Describe this webcam image in detail, focusing primarily on the static composition of the scene. Describe:\n- Foreground: what objects, surfaces, or structures are closest to the camera\n- Midground: key landmarks, buildings, terrain features\n- Background: distant elements, horizon line, mountains, water, sky\n- Overall framing: wide/narrow field of view, camera angle (high/low eye-level)\n- Architecture and built environment: building styles, road types, infrastructure\n- Natural landscape: water bodies, vegetation, terrain type\n- Sky: cloud cover type and coverage ratio (e.g. 'clear blue', 'overcast with scattered cumulus')\n\nMention weather or temporal conditions (time of day, season) only briefly at the end. Keep it under 200 words."
                         },
                         {
                             "type": "image_url",
@@ -499,10 +499,14 @@ def main():
         # Try up to 5 random webcams until we get a valid frame
         MAX_ATTEMPTS = 5
         found = False
+        round_success = False
+        round_result = None
+        round_video_id = None
 
         for attempt in range(1, MAX_ATTEMPTS + 1):
             picked = candidates.sample(1).iloc[0]
             video_id = str(picked["video_id"])
+            round_video_id = video_id
             direction = "☀️ SUNRISE" if picked["is_rising"] else "🌅 SUNSET"
             already_classified = video_id in classified_ids
 
@@ -516,25 +520,22 @@ def main():
             print(f"  Has desc:    {'yes' if already_classified else 'no'}")
 
             print(f"  Grabbing live frame …")
-            result = grab_live_frame(video_id, picked['title'])
+            round_result = grab_live_frame(video_id, picked['title'])
 
-            success = (
-                result["frame_path"] is not None
-                and os.path.isfile(result["frame_path"])
-                and result["is_black"] is not None
-                and not result["is_black"]
+            round_success = (
+                round_result["frame_path"] is not None
+                and os.path.isfile(round_result["frame_path"])
+                and round_result["is_black"] is not None
+                and not round_result["is_black"]
             )
 
-            _update_result(conn, video_id, result["resolution"], success)
-            conn.commit()
-
-            if not success:
+            if not round_success:
                 status = "video unavailable"
-                if result.get("is_black") is True:
+                if round_result.get("is_black") is True:
                     status = "black/frozen frame"
-                elif result.get("error"):
-                    status = result["error"][:150]
-                elif result["frame_path"] is None:
+                elif round_result.get("error"):
+                    status = round_result["error"][:150]
+                elif round_result["frame_path"] is None:
                     status = "download failed"
                 print(f"  {status}.")
                 if attempt < MAX_ATTEMPTS:
@@ -545,9 +546,9 @@ def main():
                 found = True
                 break
 
-            print(f"  Frame grabbed ({os.path.getsize(result['frame_path'])} bytes)")
-            if result["resolution"]:
-                print(f"  Resolution:  {result['resolution']}")
+            print(f"  Frame grabbed ({os.path.getsize(round_result['frame_path'])} bytes)")
+            if round_result["resolution"]:
+                print(f"  Resolution:  {round_result['resolution']}")
 
             if already_classified:
                 # Still update reliability/resolution but skip AI description
@@ -562,7 +563,7 @@ def main():
 
             # AI description for unclassified
             print("  Generating AI description …")
-            desc = describe_frame(result["frame_path"])
+            desc = describe_frame(round_result["frame_path"])
             if desc:
                 conn.execute("UPDATE webcams SET ai_description = ? WHERE video_id = ?", (desc, video_id))
                 _record_review(conn, video_id)
@@ -576,6 +577,11 @@ def main():
                 fail_count += 1
             found = True
             break
+
+        # Update reliability/resolution once at end of round (not per retry attempt)
+        if round_success:
+            _update_result(conn, round_video_id, round_result["resolution"], True)
+            conn.commit()
 
         if not found:
             print("  No working stream found.")
