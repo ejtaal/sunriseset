@@ -619,6 +619,8 @@ def main():
                 logger.info(f"  {status}.")
                 if attempt < MAX_ATTEMPTS:
                     logger.info(f"  Trying another … ({attempt}/{MAX_ATTEMPTS})")
+                    logger.info(f"  Waiting 30s before retry …")
+                    time.sleep(30)
                     continue
                 logger.info(f"  Giving up on this one.")
                 fail_count += 1
