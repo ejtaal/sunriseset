@@ -378,11 +378,14 @@ def grab_live_frame(video_id: str, title: str = ""):
 def describe_frame(frame_path: str) -> str | None:
     """
     Send a frame to the vision API and return an AI-generated description.
-    Returns None on failure.
+    Image resized to max 640x480 before sending. Returns None on failure.
     """
     try:
-        with open(frame_path, "rb") as f:
-            img_b64 = base64.b64encode(f.read()).decode()
+        with Image.open(frame_path) as img:
+            img.thumbnail((640, 480))
+            buf = BytesIO()
+            img.save(buf, format="JPEG", quality=75)
+            img_b64 = base64.b64encode(buf.getvalue()).decode()
 
         payload = {
             "model": VISION_MODEL,
@@ -392,7 +395,7 @@ def describe_frame(frame_path: str) -> str | None:
                     "content": [
                         {
                             "type": "text",
-                            "text": "Describe this webcam image in detail, focusing primarily on the static composition of the scene. Describe:\n- Foreground: what objects, surfaces, or structures are closest to the camera\n- Midground: key landmarks, buildings, terrain features\n- Background: distant elements, horizon line, mountains, water, sky\n- Overall framing: wide/narrow field of view, camera angle (high/low eye-level)\n- Architecture and built environment: building styles, road types, infrastructure\n- Natural landscape: water bodies, vegetation, terrain type\n- Sky: cloud cover type and coverage ratio (e.g. 'clear blue', 'overcast with scattered cumulus')\n\nAlso determine which area of the image would be best for overlaying text (e.g. a game score, stream title, viewer count). Look for areas with minimal visual content and good contrast potential.\n\nUse compass notation for the free space direction (where text could be overlaid):\n- N = top center, NE = top right, E = right center, SE = bottom right\n- S = bottom center, SW = bottom left, W = left center, NW = top left\n- Also consider: NNE (top-right-ish), ENE (right-upper), etc.\n\nOutput the direction as a single label like 'N', 'NE', 'SW', 'WNW', etc. at the very end of your response, on a separate line, prefixed with 'FREE_SPACE: '\n\nMention weather or temporal conditions only briefly at the end. Aim for 300-400 words."
+                            "text": "Describe this webcam scene in 3-5 sentences. Focus on:\n- Overall setting (coast, city, mountain, etc.)\n- Main visible elements (buildings, water, landscape)\n- Sky conditions and lighting\n- Camera perspective (wide/narrow, high/low angle)\n\nDetermine which of the 8 compass directions has the most empty space suitable for text overlay (N=top, NE=top-right, E=right, SE=bottom-right, S=bottom, SW=bottom-left, W=left, NW=top-left). Output 'FREE_SPACE: ' followed by the direction letter at the very end, on its own line.\n\nNo weather details, no itemized foreground lists. Keep it natural and concise."
                         },
                         {
                             "type": "image_url",
