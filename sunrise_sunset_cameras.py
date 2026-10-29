@@ -501,6 +501,7 @@ def main():
     success_count = 0
     fail_count = 0
     all_urls_tried = set()
+    classified_this_session = []  # track (rowid, title, video_id) for summary
 
     for rnd in range(1, num_rounds + 1):
         logger.info(f"\n{'─' * 70}")
@@ -586,7 +587,13 @@ def main():
                 found = True
                 break
 
-            # AI description for unclassified
+            # AI description for unclassified — show frame first, then generate
+            logger.info("  Displaying with feh …")
+            subprocess.Popen(
+                ["timeout", "300", "feh", "--auto-zoom", "--image-bg", "#333333", round_result["frame_path"]],
+                start_new_session=True,
+                close_fds=True,
+            )
             logger.info("  Generating AI description …")
             desc = describe_frame(round_result["frame_path"])
             if desc:
@@ -595,7 +602,10 @@ def main():
                 conn.commit()
                 classified_ids.add(video_id)
                 logger.info(f"  Description stored (len={len(desc)})")
-                logger.info(f"  {desc[:200]}…")
+                logger.info(f"  Description: {desc}")
+                # Track for summary
+                rowid = conn.execute("SELECT rowid FROM webcams WHERE video_id = ?", (video_id,)).fetchone()[0]
+                classified_this_session.append((rowid, video_id, picked['title']))
                 success_count += 1
             else:
                 logger.info("  Could not generate AI description.")
@@ -635,6 +645,27 @@ def main():
         for url in sorted(all_urls_tried):
             logger.info(f"  {url}")
         logger.info(f"{'─' * 70}")
+
+    # Classify streams summary
+    if classified_this_session:
+        logger.info(f"\n{'═' * 70}")
+        logger.info(f"Cameras classified this session ({len(classified_this_session)}):")
+        for rowid, video_id, title in classified_this_session:
+            info = conn.execute("""
+                SELECT reliability, view_quality, highest_resolution, last_reviewed
+                FROM webcams WHERE rowid = ?
+            """, (rowid,)).fetchone()
+            if info:
+                rel, vq, res, reviewed = info
+                logger.info(f"\n  Title:          {title}")
+                logger.info(f"  URL:            https://www.youtube.com/watch?v={video_id}")
+                logger.info(f"  Reliability:    {rel}/10")
+                logger.info(f"  View quality:   {vq if vq else 'N/A'}")
+                logger.info(f"  Resolution:     {res if res else 'N/A'}")
+                logger.info(f"  Reviewed:       {reviewed if reviewed else 'N/A'}")
+                # Get description
+                desc = conn.execute("SELECT ai_description FROM webcams WHERE rowid = ?", (rowid,)).fetchone()[0]
+                logger.info(f"  Description:    {desc}")
     conn.execute("""
         SELECT
             COUNT(*) as total,
