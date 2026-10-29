@@ -588,10 +588,10 @@ def main():
             fail_count += 1
 
         # Display with feh on every round
-        if success and os.path.isfile(result["frame_path"]):
+        if round_success and os.path.isfile(round_result["frame_path"]):
             print(f"\n  Displaying with feh …\n")
             subprocess.Popen(
-                ["timeout", "300", "feh", "--auto-zoom", "--image-bg", "#333333", result["frame_path"]],
+                ["timeout", "300", "feh", "--auto-zoom", "--image-bg", "#333333", round_result["frame_path"]],
                 start_new_session=True,
                 close_fds=True,
             )
