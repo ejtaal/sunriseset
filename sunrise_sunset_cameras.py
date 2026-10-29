@@ -16,6 +16,7 @@ Workflow:
 Requires: pandas, Pillow, yt-dlp, ffmpeg, feh
 """
 
+import base64
 import math
 import os
 import re
@@ -23,11 +24,18 @@ import shutil
 import sqlite3
 import subprocess
 import tempfile
+import urllib.request
 from datetime import datetime, timezone, timedelta
 from io import BytesIO
 
 import pandas as pd
 from PIL import Image
+
+# ---------------------------------------------------------------------------
+# AI Vision API (OpenAI-compatible)
+# ---------------------------------------------------------------------------
+VISION_API_URL = "http://10.0.2.2:8080/upstream/unsloth-Qwen3.6-35B-A3B-standard/v1/chat/completions"
+VISION_MODEL = "unsloth/Qwen3.6-35B-A3B-GGUF:Q4_K_XL"
 
 # ---------------------------------------------------------------------------
 # NOAA Solar Calculator
@@ -311,6 +319,50 @@ def grab_live_frame(video_id: str):
             os.remove(tmp_mp4)
 
 
+def describe_frame(frame_path: str) -> str | None:
+    """
+    Send a frame to the vision API and return an AI-generated description.
+    Returns None on failure.
+    """
+    try:
+        with open(frame_path, "rb") as f:
+            img_b64 = base64.b64encode(f.read()).decode()
+
+        payload = {
+            "model": VISION_MODEL,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "Describe this webcam image in detail: scene, landscape, sky, lighting, season, composition. Keep it under 200 words."
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}
+                        }
+                    ]
+                }
+            ],
+            "max_tokens": 4096
+        }
+
+        req = urllib.request.Request(
+            VISION_API_URL,
+            data=__import__("json").dumps(payload).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            data = __import__("json").loads(resp.read())
+            return data["choices"][0]["message"]["content"].strip()
+
+    except Exception:
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -391,6 +443,17 @@ def main():
             print(f"  Frame grabbed ({os.path.getsize(result['frame_path'])} bytes)")
             if result["resolution"]:
                 print(f"  Resolution:  {result['resolution']}")
+
+            # AI description
+            print("  Generating AI description …")
+            desc = describe_frame(result["frame_path"])
+            if desc:
+                conn.execute("UPDATE webcams SET ai_description = ? WHERE video_id = ?", (desc, video_id))
+                conn.commit()
+                print(f"  Description stored (len={len(desc)})")
+            else:
+                print("  Could not generate AI description.")
+
             rel = _get_reliability(conn, video_id)
             print(f"  Reliability: {rel}/10")
             print(f"\n  Displaying with feh …\n")
