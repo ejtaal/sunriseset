@@ -593,7 +593,7 @@ def main():
             else:
                 unclassified_ids.discard(vid)  # remove old unclassified, will be re-added
 
-        unclassified_ids_now = set(str(r["video_id"]) for r in matches.itertuples()) - classified_ids
+        unclassified_ids_now = set(r.video_id for r in matches.itertuples()) - classified_ids
         expired_count_now = 0
         for vid in unclassified_ids_now:
             row = conn.execute(
