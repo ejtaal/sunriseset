@@ -17,6 +17,7 @@ Requires: pandas, Pillow, yt-dlp, ffmpeg, feh
 """
 
 import base64
+import logging
 import math
 import os
 import random
@@ -24,10 +25,14 @@ import re
 import shutil
 import sqlite3
 import subprocess
+import sys
 import tempfile
 import urllib.request
 from datetime import datetime, timezone, timedelta
 from io import BytesIO
+
+LOG_FILE = "/tmp/classify.log"
+logger = logging.getLogger("classify")
 
 import pandas as pd
 from PIL import Image
@@ -334,7 +339,7 @@ def grab_live_frame(video_id: str, title: str = ""):
             pass
 
         if error:
-            print(f"  yt-dlp: {error}")
+            logger.info(f"  yt-dlp: {error}")
 
         if result != 0 or not os.path.isfile(tmp_mp4) or os.path.getsize(tmp_mp4) < 1000:
             return {"frame_path": None, "resolution": None, "is_black": None, "error": error}
@@ -421,15 +426,28 @@ def main():
     parser.add_argument("--classify", type=int, default=0, help="Run N iterations to classify streams (no feh)")
     args = parser.parse_args()
 
-    print("=" * 70)
-    print("📷 Webcam Sunrise/Sunset — Random Pick" if args.classify == 0 else "📷 Webcam Stream Classifier")
-    print("=" * 70)
+    # Set up logging to file (and stdout)
+    logger = logging.getLogger("classify")
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    if not logger.handlers:
+        fmt = logging.Formatter("%(asctime)s %(message)s", datefmt="%H:%M:%S")
+        fh = logging.FileHandler(LOG_FILE, mode="a")
+        fh.setFormatter(fmt)
+        logger.addHandler(fh)
+        sh = logging.StreamHandler(sys.stdout)
+        sh.setFormatter(fmt)
+        logger.addHandler(sh)
+
+    logger.info("=" * 70)
+    logger.info("📷 Webcam Sunrise/Sunset — Random Pick" if args.classify == 0 else "📷 Webcam Stream Classifier")
+    logger.info("=" * 70)
 
     # Load and calculate sun positions
     df = load_webcams()
     now = datetime.now(timezone.utc)
-    print(f"Time: {now.strftime('%Y-%m-%d %H:%M:%S UTC')}")
-    print(f"Webcams with coords + video: {len(df)}")
+    logger.info(f"Time: {now.strftime('%Y-%m-%d %H:%M:%S UTC')}")
+    logger.info(f"Webcams with coords + video: {len(df)}")
 
     results = []
     for _, row in df.iterrows():
@@ -456,11 +474,11 @@ def main():
     matches = sun_df[sunrise_mask | sunset_mask]
 
     if matches.empty:
-        print("\nNo webcams at sunrise or sunset right now.")
-        print("  Try running again later.")
+        logger.info("\nNo webcams at sunrise or sunset right now.")
+        logger.info("  Try running again later.")
         return
 
-    print(f"\nFound {len(matches)} webcam(s) at sunrise/sunset")
+    logger.info(f"\nFound {len(matches)} webcam(s) at sunrise/sunset")
 
     # Determine how many classification rounds to run
     num_rounds = args.classify if args.classify > 0 else 1
@@ -476,17 +494,17 @@ def main():
         else:
             unclassified_ids.add(vid)
 
-    print(f"\nAlready classified: {len(classified_ids)} | Need classification: {len(unclassified_ids)}")
-    print(f"Rounds to run: {num_rounds}")
+    logger.info(f"\nAlready classified: {len(classified_ids)} | Need classification: {len(unclassified_ids)}")
+    logger.info(f"Rounds to run: {num_rounds}")
 
     success_count = 0
     fail_count = 0
     all_urls_tried = set()
 
     for rnd in range(1, num_rounds + 1):
-        print(f"\n{'─' * 70}")
-        print(f"Round {rnd}/{num_rounds}")
-        print(f"{'─' * 70}")
+        logger.info(f"\n{'─' * 70}")
+        logger.info(f"Round {rnd}/{num_rounds}")
+        logger.info(f"{'─' * 70}")
 
         # Bias selection: 90% from unclassified, 10% from all
         if unclassified_ids and len(unclassified_ids) > 0 and random.random() < 0.9:
@@ -511,21 +529,21 @@ def main():
             direction = "☀️ SUNRISE" if picked["is_rising"] else "🌅 SUNSET"
             already_classified = video_id in classified_ids
 
-            print(f"\n{direction} | {'[CLASSIFYING]' if not already_classified else '[ALREADY CLASSIFIED]'}")
-            print(f"  Title:       {picked['title']}")
-            print(f"  Location:    {picked['country'] or '—'}, {picked['region'] or '—'}")
-            print(f"  Coords:      {picked['lat']:.4f}, {picked['lon']:.4f}")
+            logger.info(f"\n{direction} | {'[CLASSIFYING]' if not already_classified else '[ALREADY CLASSIFIED]'}")
+            logger.info(f"  Title:       {picked['title']}")
+            logger.info(f"  Location:    {picked['country'] or '—'}, {picked['region'] or '—'}")
+            logger.info(f"  Coords:      {picked['lat']:.4f}, {picked['lon']:.4f}")
             yt_url = f"https://www.youtube.com/watch?v={video_id}"
             all_urls_tried.add(yt_url)
-            print(f"  ── {yt_url} ──")
-            print(f"  Title:       {picked['title']}")
-            print(f"  Location:    {picked['country'] or '—'}, {picked['region'] or '—'}")
-            print(f"  Coords:      {picked['lat']:.4f}, {picked['lon']:.4f}")
-            print(f"  Sun angle:   {picked['altitude']:.2f}°")
-            print(f"  Reliability: {picked['reliability']}/10")
-            print(f"  Has desc:    {'yes' if already_classified else 'no'}")
+            logger.info(f"  ── {yt_url} ──")
+            logger.info(f"  Title:       {picked['title']}")
+            logger.info(f"  Location:    {picked['country'] or '—'}, {picked['region'] or '—'}")
+            logger.info(f"  Coords:      {picked['lat']:.4f}, {picked['lon']:.4f}")
+            logger.info(f"  Sun angle:   {picked['altitude']:.2f}°")
+            logger.info(f"  Reliability: {picked['reliability']}/10")
+            logger.info(f"  Has desc:    {'yes' if already_classified else 'no'}")
 
-            print(f"  Grabbing live frame …")
+            logger.info(f"  Grabbing live frame …")
             round_result = grab_live_frame(video_id, picked['title'])
 
             round_success = (
@@ -543,23 +561,23 @@ def main():
                     status = round_result["error"][:150]
                 elif round_result["frame_path"] is None:
                     status = "download failed"
-                print(f"  {status}.")
+                logger.info(f"  {status}.")
                 if attempt < MAX_ATTEMPTS:
-                    print(f"  Trying another … ({attempt}/{MAX_ATTEMPTS})")
+                    logger.info(f"  Trying another … ({attempt}/{MAX_ATTEMPTS})")
                     continue
-                print(f"  Giving up on this one.")
+                logger.info(f"  Giving up on this one.")
                 fail_count += 1
                 found = True
                 break
 
-            print(f"  Frame grabbed ({os.path.getsize(round_result['frame_path'])} bytes)")
+            logger.info(f"  Frame grabbed ({os.path.getsize(round_result['frame_path'])} bytes)")
             if round_result["resolution"]:
-                print(f"  Resolution:  {round_result['resolution']}")
+                logger.info(f"  Resolution:  {round_result['resolution']}")
 
             if already_classified:
                 # Still update reliability/resolution but skip AI description
                 rel = _get_reliability(conn, video_id)
-                print(f"  Reliability: {rel}/10")
+                logger.info(f"  Reliability: {rel}/10")
                 _record_review(conn, video_id)
                 conn.commit()
                 classified_ids.add(video_id)  # still count as "seen"
@@ -568,18 +586,18 @@ def main():
                 break
 
             # AI description for unclassified
-            print("  Generating AI description …")
+            logger.info("  Generating AI description …")
             desc = describe_frame(round_result["frame_path"])
             if desc:
                 conn.execute("UPDATE webcams SET ai_description = ? WHERE video_id = ?", (desc, video_id))
                 _record_review(conn, video_id)
                 conn.commit()
                 classified_ids.add(video_id)
-                print(f"  Description stored (len={len(desc)})")
-                print(f"  {desc[:200]}…")
+                logger.info(f"  Description stored (len={len(desc)})")
+                logger.info(f"  {desc[:200]}…")
                 success_count += 1
             else:
-                print("  Could not generate AI description.")
+                logger.info("  Could not generate AI description.")
                 fail_count += 1
             found = True
             break
@@ -590,12 +608,12 @@ def main():
             conn.commit()
 
         if not found:
-            print("  No working stream found.")
+            logger.info("  No working stream found.")
             fail_count += 1
 
         # Display with feh on every round
         if round_success and os.path.isfile(round_result["frame_path"]):
-            print(f"\n  Displaying with feh …\n")
+            logger.info(f"\n  Displaying with feh …\n")
             subprocess.Popen(
                 ["timeout", "300", "feh", "--auto-zoom", "--image-bg", "#333333", round_result["frame_path"]],
                 start_new_session=True,
@@ -603,14 +621,14 @@ def main():
             )
 
     # Summary
-    print(f"\n{'═' * 70}")
-    print(f"Classification complete: {success_count} success, {fail_count} failed")
+    logger.info(f"\n{'═' * 70}")
+    logger.info(f"Classification complete: {success_count} success, {fail_count} failed")
     if all_urls_tried:
-        print(f"\n{'─' * 70}")
-        print(f"URLs tried ({len(all_urls_tried)} unique):")
+        logger.info(f"\n{'─' * 70}")
+        logger.info(f"URLs tried ({len(all_urls_tried)} unique):")
         for url in sorted(all_urls_tried):
-            print(f"  {url}")
-        print(f"{'─' * 70}")
+            logger.info(f"  {url}")
+        logger.info(f"{'─' * 70}")
     conn.execute("""
         SELECT
             COUNT(*) as total,
