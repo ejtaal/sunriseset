@@ -418,7 +418,8 @@ def describe_frame(frame_path: str) -> str | None:
             data = __import__("json").loads(resp.read())
             return data["choices"][0]["message"]["content"].strip()
 
-    except Exception:
+    except Exception as exc:
+        logger.error(f"describe_frame failed: {type(exc).__name__}: {exc}")
         return None
 
 
@@ -660,7 +661,10 @@ def main():
                 close_fds=True,
             )
             logger.info("  Generating AI description …")
+            import time as _time
+            _t0 = _time.time()
             desc = describe_frame(round_result["frame_path"])
+            _elapsed = _time.time() - _t0
             if desc:
                 # Extract free space direction from description
                 free_space = None
@@ -687,12 +691,13 @@ def main():
                 else:
                     logger.info("  View quality:   N/A (LLM assessment failed)")
                 logger.info(f"  Description:    {desc}")
+                logger.info(f"  AI time:        {_elapsed:.0f}s")
                 # Track for summary
                 rowid = conn.execute("SELECT rowid FROM webcams WHERE video_id = ?", (video_id,)).fetchone()[0]
                 classified_this_session.append((rowid, video_id, picked['title']))
                 success_count += 1
             else:
-                logger.info("  Could not generate AI description.")
+                logger.info(f"  Could not generate AI description ({_elapsed:.0f}s).")
                 fail_count += 1
             found = True
             break
