@@ -392,7 +392,7 @@ def describe_frame(frame_path: str) -> str | None:
                     "content": [
                         {
                             "type": "text",
-                            "text": "Describe this webcam image in detail, focusing primarily on the static composition of the scene. Describe:\n- Foreground: what objects, surfaces, or structures are closest to the camera\n- Midground: key landmarks, buildings, terrain features\n- Background: distant elements, horizon line, mountains, water, sky\n- Overall framing: wide/narrow field of view, camera angle (high/low eye-level)\n- Architecture and built environment: building styles, road types, infrastructure\n- Natural landscape: water bodies, vegetation, terrain type\n- Sky: cloud cover type and coverage ratio (e.g. 'clear blue', 'overcast with scattered cumulus')\n\nMention weather or temporal conditions (time of day, season) only briefly at the end. Keep it under 200 words."
+                            "text": "Describe this webcam image in detail, focusing primarily on the static composition of the scene. Describe:\n- Foreground: what objects, surfaces, or structures are closest to the camera\n- Midground: key landmarks, buildings, terrain features\n- Background: distant elements, horizon line, mountains, water, sky\n- Overall framing: wide/narrow field of view, camera angle (high/low eye-level)\n- Architecture and built environment: building styles, road types, infrastructure\n- Natural landscape: water bodies, vegetation, terrain type\n- Sky: cloud cover type and coverage ratio (e.g. 'clear blue', 'overcast with scattered cumulus')\n\nAlso determine which area of the image would be best for overlaying text (e.g. a game score, stream title, viewer count). Look for areas with minimal visual content and good contrast potential.\n\nUse compass notation for the free space direction (where text could be overlaid):\n- N = top center, NE = top right, E = right center, SE = bottom right\n- S = bottom center, SW = bottom left, W = left center, NW = top left\n- Also consider: NNE (top-right-ish), ENE (right-upper), etc.\n\nOutput the direction as a single label like 'N', 'NE', 'SW', 'WNW', etc. at the very end of your response, on a separate line, prefixed with 'FREE_SPACE: '\n\nMention weather or temporal conditions only briefly at the end. Aim for 300-400 words."
                         },
                         {
                             "type": "image_url",
@@ -650,16 +650,26 @@ def main():
             logger.info("  Generating AI description …")
             desc = describe_frame(round_result["frame_path"])
             if desc:
+                # Extract free space direction from description
+                free_space = None
+                for line in desc.split('\n'):
+                    line = line.strip()
+                    if line.startswith('FREE_SPACE:'):
+                        free_space = line.split(':', 1)[1].strip().upper()
+                        break
+
                 # Auto-assess view quality from description
                 vq = assess_view_quality(desc)
                 conn.execute(
-                    "UPDATE webcams SET ai_description = ?, view_quality = ? WHERE video_id = ?",
-                    (desc, vq, video_id),
+                    "UPDATE webcams SET ai_description = ?, view_quality = ?, free_space = ? WHERE video_id = ?",
+                    (desc, vq, free_space, video_id),
                 )
                 _record_review(conn, video_id)
                 conn.commit()
                 classified_ids.add(video_id)
                 logger.info(f"  Description stored (len={len(desc)})")
+                if free_space:
+                    logger.info(f"  Free space:     {free_space} (text overlay area)")
                 if vq:
                     logger.info(f"  View quality:   {vq}/10")
                 else:
@@ -705,15 +715,16 @@ def main():
         logger.info(f"Cameras classified this session ({len(classified_this_session)}):")
         for rowid, video_id, title in classified_this_session:
             info = conn.execute("""
-                SELECT reliability, view_quality, highest_resolution, last_reviewed
+                SELECT reliability, view_quality, free_space, highest_resolution, last_reviewed
                 FROM webcams WHERE rowid = ?
             """, (rowid,)).fetchone()
             if info:
-                rel, vq, res, reviewed = info
+                rel, vq, fs, res, reviewed = info
                 logger.info(f"\n  Title:          {title}")
                 logger.info(f"  URL:            https://www.youtube.com/watch?v={video_id}")
                 logger.info(f"  Reliability:    {rel}/10")
                 logger.info(f"  View quality:   {vq if vq else 'N/A'}")
+                logger.info(f"  Free space:     {fs if fs else 'N/A'} (text overlay area)")
                 logger.info(f"  Resolution:     {res if res else 'N/A'}")
                 logger.info(f"  Reviewed:       {reviewed if reviewed else 'N/A'}")
                 # Get description

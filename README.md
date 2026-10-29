@@ -34,7 +34,8 @@ CREATE TABLE webcams (
     fetched_at           TEXT,            -- when this record was last fetched
     source               TEXT,            -- 'liveworldwebcams.com' or 'webcamlivestream.com'
     reliability          INTEGER DEFAULT 5, -- stream reliability 0-10 (+1 success, -1 failure/black)
-    view_quality         INTEGER,         -- view quality (manual assessment, not auto-populated)
+    view_quality         INTEGER,         -- view quality (auto-assessed 1-10 or manual)
+    free_space           TEXT,            -- compass direction of best text overlay area (N, NE, E, SE, S, SW, W, NW)
     highest_resolution   TEXT,            -- highest captured resolution, e.g. '1920x1080'
     ai_description       TEXT             -- AI-generated description of latest captured frame
 );
