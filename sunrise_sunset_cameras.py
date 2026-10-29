@@ -48,12 +48,21 @@ LLM_MODEL = VISION_MODEL
 
 
 def _has_description(conn, video_id: str) -> bool:
-    """Check if a video already has an AI description."""
+    """Check if a video has a valid AI description (reviewed within 2 months)."""
     row = conn.execute(
-        "SELECT 1 FROM webcams WHERE video_id = ? AND ai_description IS NOT NULL AND ai_description != ''",
+        "SELECT ai_description, last_reviewed FROM webcams WHERE video_id = ?",
         (video_id,)
     ).fetchone()
-    return row is not None
+    if not row or not row[0] or row[0] == '':
+        return False  # No description
+    if not row[1]:
+        return False  # No review date → treat as stale
+    from datetime import timedelta
+    try:
+        review_date = datetime.fromisoformat(row[1])
+    except (ValueError, TypeError):
+        return False
+    return (datetime.utcnow() - review_date) < timedelta(days=60)
 
 # ---------------------------------------------------------------------------
 # NOAA Solar Calculator
@@ -551,6 +560,7 @@ def main():
     conn = sqlite3.connect(DB_PATH)
     classified_ids = set()
     unclassified_ids = set()
+    expired_count = 0
     for _, row in matches.iterrows():
         vid = str(row["video_id"])
         if _has_description(conn, vid):
@@ -558,7 +568,16 @@ def main():
         else:
             unclassified_ids.add(vid)
 
-    logger.info(f"\nAlready classified: {len(classified_ids)} | Need classification: {len(unclassified_ids)}")
+    # Count how many have descriptions but they're expired
+    for vid in set(str(r["video_id"]) for r in matches.itertuples()):
+        row = conn.execute(
+            "SELECT ai_description, last_reviewed FROM webcams WHERE video_id = ?",
+            (vid,)
+        ).fetchone()
+        if row and row[0] and row[0] != '' and (not row[1] or (datetime.utcnow() - datetime.fromisoformat(row[1])).days >= 60):
+            expired_count += 1
+
+    logger.info(f"\nAlready classified: {len(classified_ids)} | Expired (>60d): {expired_count} | Need classification: {len(unclassified_ids)}")
     logger.info(f"Rounds to run: {num_rounds}")
 
     success_count = 0
