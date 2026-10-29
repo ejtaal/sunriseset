@@ -511,6 +511,7 @@ def main():
     parser = argparse.ArgumentParser(description="Webcam sunrise/sunset finder")
     parser.add_argument("--classify", type=int, default=0, help="Run N iterations to classify streams (no feh)")
     parser.add_argument("--overwrite", action="store_true", help="Re-classify even if descriptions already exist")
+    parser.add_argument("--no-feh-timeout", action="store_true", help="Disable feh display timeout")
     args = parser.parse_args()
 
     # Set up logging to file (and stdout)
@@ -530,42 +531,9 @@ def main():
     logger.info("📷 Webcam Sunrise/Sunset — Random Pick" if args.classify == 0 else "📷 Webcam Stream Classifier")
     logger.info("=" * 70)
 
-    # Load and calculate sun positions
+    # Load webcam data once
     df = load_webcams()
-    now = datetime.now(timezone.utc)
-    logger.info(f"Time: {now.strftime('%Y-%m-%d %H:%M:%S UTC')}")
     logger.info(f"Webcams with coords + video: {len(df)}")
-
-    results = []
-    for _, row in df.iterrows():
-        pos = _sun_position(now, row["latitude"], row["longitude"])
-        results.append({
-            "title": row["title"],
-            "country": row["country"],
-            "region": row["region"],
-            "lat": row["latitude"],
-            "lon": row["longitude"],
-            "source": row["source"],
-            "url": row["url"],
-            "video_id": row["video_id"],
-            "reliability": int(row.get("reliability") or 5),
-            "altitude": pos["altitude"],
-            "is_rising": pos["is_rising"],
-        })
-
-    sun_df = pd.DataFrame(results)
-
-    # Filter sunrise/sunset
-    sunrise_mask = (sun_df["is_rising"]) & (sun_df["altitude"] >= -2) & (sun_df["altitude"] <= -1)
-    sunset_mask = (~sun_df["is_rising"]) & (sun_df["altitude"] >= 0) & (sun_df["altitude"] <= 2)
-    matches = sun_df[sunrise_mask | sunset_mask]
-
-    if matches.empty:
-        logger.info("\nNo webcams at sunrise or sunset right now.")
-        logger.info("  Try running again later.")
-        return
-
-    logger.info(f"\nFound {len(matches)} webcam(s) at sunrise/sunset")
 
     # Determine how many classification rounds to run
     num_rounds = args.classify if args.classify > 0 else 1
@@ -575,31 +543,6 @@ def main():
     classified_ids = set()
     unclassified_ids = set()
     expired_count = 0
-    if args.overwrite:
-        # Force re-classification of all matching streams
-        for _, row in matches.iterrows():
-            unclassified_ids.add(str(row["video_id"]))
-        logger.info("  --overwrite: re-classifying all matching streams (ignoring existing descriptions)")
-    else:
-        for _, row in matches.iterrows():
-            vid = str(row["video_id"])
-            if _has_description(conn, vid):
-                classified_ids.add(vid)
-            else:
-                unclassified_ids.add(vid)
-
-    # Count how many unclassified have expired descriptions (vs no description at all)
-    for vid in unclassified_ids:
-        row = conn.execute(
-            "SELECT ai_description, last_reviewed FROM webcams WHERE video_id = ?",
-            (vid,)
-        ).fetchone()
-        if row and row[0] and row[0] != '' and row[1]:
-            expired_count += 1
-
-    prefix = "[OVERWRITE] " if args.overwrite else ""
-    logger.info(f"\n{prefix}Already classified: {len(classified_ids)} | Expired (>60d): {expired_count} | Need classification: {len(unclassified_ids)}")
-    logger.info(f"Rounds to run: {num_rounds}")
 
     success_count = 0
     fail_count = 0
@@ -607,15 +550,66 @@ def main():
     classified_this_session = []  # track (rowid, title, video_id) for summary
 
     for rnd in range(1, num_rounds + 1):
-        logger.info(f"\n{'─' * 70}")
-        logger.info(f"Round {rnd}/{num_rounds}")
-        logger.info(f"{'─' * 70}")
+        # Recalculate sun position each round (can take many minutes for AI)
+        now = datetime.now(timezone.utc)
+        logger.info(f"\n{'═' * 70}")
+        logger.info(f"Round {rnd}/{num_rounds} — {now.strftime('%H:%M:%S UTC')}")
+        logger.info(f"{'═' * 70}")
+
+        results = []
+        for _, row in df.iterrows():
+            pos = _sun_position(now, row["latitude"], row["longitude"])
+            results.append({
+                "title": row["title"],
+                "country": row["country"],
+                "region": row["region"],
+                "lat": row["latitude"],
+                "lon": row["longitude"],
+                "source": row["source"],
+                "url": row["url"],
+                "video_id": row["video_id"],
+                "reliability": int(row.get("reliability") or 5),
+                "altitude": pos["altitude"],
+                "is_rising": pos["is_rising"],
+            })
+
+        sun_df = pd.DataFrame(results)
+        sunrise_mask = (sun_df["is_rising"]) & (sun_df["altitude"] >= -2) & (sun_df["altitude"] <= -1)
+        sunset_mask = (~sun_df["is_rising"]) & (sun_df["altitude"] >= 0) & (sun_df["altitude"] <= 2)
+        matches = sun_df[sunrise_mask | sunset_mask]
+
+        if matches.empty:
+            logger.info("\nNo webcams at sunrise or sunset right now.")
+            logger.info("  Try running again later.")
+            break
+
+        logger.info(f"\nFound {len(matches)} webcam(s) at sunrise/sunset")
+
+        # Update classified/unclassified sets based on current DB state
+        for _, row in matches.iterrows():
+            vid = str(row["video_id"])
+            if _has_description(conn, vid):
+                classified_ids.add(vid)
+            else:
+                unclassified_ids.discard(vid)  # remove old unclassified, will be re-added
+
+        unclassified_ids_now = set(str(r["video_id"]) for r in matches.itertuples()) - classified_ids
+        expired_count_now = 0
+        for vid in unclassified_ids_now:
+            row = conn.execute(
+                "SELECT ai_description, last_reviewed FROM webcams WHERE video_id = ?",
+                (vid,)
+            ).fetchone()
+            if row and row[0] and row[0] != '' and row[1]:
+                expired_count_now += 1
+
+        prefix = "[OVERWRITE] " if args.overwrite else ""
+        logger.info(f"{prefix}Already classified: {len(classified_ids)} | Need classification: {len(unclassified_ids_now)}")
 
         # Bias selection: 90% from unclassified, 10% from all
-        if unclassified_ids and len(unclassified_ids) > 0 and random.random() < 0.9:
-            candidates = matches[matches["video_id"].astype(str).isin(unclassified_ids)]
+        if unclassified_ids_now and len(unclassified_ids_now) > 0 and random.random() < 0.9:
+            candidates = matches[matches["video_id"].astype(str).isin(unclassified_ids_now)]
             if candidates.empty:
-                # Fall back to all if no unclassified match sunrise/sunset
                 candidates = matches
         else:
             candidates = matches
@@ -663,7 +657,6 @@ def main():
                 elif round_result["frame_path"] is None:
                     status = "download failed"
                 logger.info(f"  {status}.")
-                logger.info(f"  Reliability: {picked['reliability']}/10")
                 if attempt < MAX_ATTEMPTS:
                     logger.info(f"  Trying another … ({attempt}/{MAX_ATTEMPTS})")
                     logger.info(f"  Waiting 30s before retry …")
@@ -677,21 +670,26 @@ def main():
             logger.info(f"  Frame grabbed ({os.path.getsize(round_result['frame_path'])} bytes)")
             if round_result["resolution"]:
                 logger.info(f"  Resolution:  {round_result['resolution']}")
-            logger.info(f"  Reliability: {picked['reliability']}/10")
 
             if already_classified:
-                # Still update reliability/resolution but skip AI description
+                # Already classified — update reliability/resolution and skip AI
+                _update_result(conn, video_id, round_result["resolution"], True)
                 _record_review(conn, video_id)
                 conn.commit()
-                classified_ids.add(video_id)  # still count as "seen"
+                logger.info(f"  Reliability: {_get_reliability(conn, video_id)}/10")
+                classified_ids.add(video_id)
                 success_count += 1
                 found = True
                 break
 
             # AI description for unclassified — show frame first, then generate
             logger.info("  Displaying with feh …")
+            feh_cmd = ["feh", "--auto-zoom", "--image-bg", "#333333", round_result["frame_path"]]
+            if not args.no_feh_timeout:
+                feh_cmd.insert(0, "timeout")
+                feh_cmd.insert(1, "300")
             subprocess.Popen(
-                ["timeout", "300", "feh", "--auto-zoom", "--image-bg", "#333333", round_result["frame_path"]],
+                feh_cmd,
                 start_new_session=True,
                 close_fds=True,
             )
@@ -733,7 +731,10 @@ def main():
                     (desc, vq, free_space, video_id),
                 )
                 _record_review(conn, video_id)
+                # Update reliability/resolution AFTER AI description
+                _update_result(conn, video_id, round_result["resolution"], True)
                 conn.commit()
+                logger.info(f"  Reliability: {_get_reliability(conn, video_id)}/10")
                 classified_ids.add(video_id)
                 logger.info(f"  Description stored (len={len(desc)})")
                 if free_space:
@@ -750,14 +751,13 @@ def main():
                 success_count += 1
             else:
                 logger.info(f"  Could not generate AI description ({_elapsed:.0f}s).")
+                # Still update reliability/resolution after failed AI attempt
+                _update_result(conn, video_id, round_result["resolution"], False)
+                conn.commit()
+                logger.info(f"  Reliability: {_get_reliability(conn, video_id)}/10")
                 fail_count += 1
             found = True
             break
-
-        # Update reliability/resolution once at end of round (not per retry attempt)
-        if round_success:
-            _update_result(conn, round_video_id, round_result["resolution"], True)
-            conn.commit()
 
         if not found:
             logger.info("  No working stream found.")
