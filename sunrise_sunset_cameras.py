@@ -662,6 +662,8 @@ def main():
                 logger.info(f"  Description stored (len={len(desc)})")
                 if vq:
                     logger.info(f"  View quality:   {vq}/10")
+                else:
+                    logger.info("  View quality:   N/A (LLM assessment failed)")
                 logger.info(f"  Description:    {desc}")
                 # Track for summary
                 rowid = conn.execute("SELECT rowid FROM webcams WHERE video_id = ?", (video_id,)).fetchone()[0]
