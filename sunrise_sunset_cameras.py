@@ -442,18 +442,26 @@ def assess_view_quality(description: str) -> int | None:
                     "role": "user",
                     "content": f"""Assess this webcam's view quality on a scale of 1-10 based on the AI description below.
 
-Criteria:
-- **Sky visibility** — how much of the sky is visible (clear sky, partial, blocked, none)
-- **Landscape/city inclusion** — does the frame show meaningful surroundings vs just a wall/ceiling
-- **FOV width** — wide panoramic view vs narrow/tight framing
-- **Clarity** — is the scene sharp and detailed vs blurry/muddy
+Criteria — score ONLY how suitable this view is for watching sunrise/sunset:
 
-Scoring:
-- 9-10: Wide FOV, excellent sky visibility, rich landscape/city, sharp
-- 7-8: Good FOV, sky visible, good surroundings, reasonably sharp
-- 5-6: Moderate FOV, some sky, basic surroundings, adequate clarity
-- 3-4: Narrow FOV, limited sky, mostly foreground, poor clarity
-- 1-2: Very narrow/tight, no sky, blocked view, very poor clarity
+**Sunrise/sunset relevance (critical):**
+- Does the view show sky, horizon, water, open landscape, or cityscape? → relevant
+- Is it a close-up of objects, walls, feeders, interiors, or meaningless framing? → irrelevant
+
+**Horizon/sky visibility:**
+- Unobstructed sky or horizon line visible
+- Tight framing on buildings/ground with no sky
+
+**FOV width:**
+- Wide panoramic view
+- Narrow/tight framing
+
+**Scoring:**
+- 9-10: Wide horizon/sky, open landscape or cityscape, excellent for sunrise/sunset
+- 7-8: Good sky/horizon visible, suitable for sunrise/sunset viewing
+- 5-6: Some sky/horizon, but limited view or obstructed
+- 3-4: Mostly ground/buildings, very little sky, poor for sunrise/sunset
+- 1-2: No sky or horizon — close-up objects, walls, feeders, interiors, parking lots, etc.
 
 Output ONLY a number 1-10. No explanation.
 
@@ -461,7 +469,7 @@ Description:
 {description}"""
                 }
             ],
-            "max_tokens": 256,
+            "max_tokens": 1024,
             "temperature": 0,
         }
         req = urllib.request.Request(
@@ -475,10 +483,15 @@ Description:
             text = data["choices"][0]["message"]["content"].strip()
             # Reasoning models put answer in reasoning_content
             reasoning = data["choices"][0]["message"].get("reasoning_content", "")
-            # Check content first, then reasoning
             for src in [text, reasoning]:
-                # Look for a number at the end
                 import re
+                # Try to find "Result: X" or "Score: X" pattern anywhere in text
+                m = re.search(r'(?:result|score)[\s:]+(\d+)', src, re.IGNORECASE)
+                if m:
+                    val = int(m.group(1))
+                    if 1 <= val <= 10:
+                        return val
+                # Fall back: last standalone number matching 1-10 anywhere
                 nums = re.findall(r'\b([1-9]|10)\b', src)
                 if nums:
                     val = int(nums[-1])
