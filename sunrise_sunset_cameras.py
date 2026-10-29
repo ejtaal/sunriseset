@@ -393,8 +393,12 @@ def main():
                 print(f"  Resolution:  {result['resolution']}")
             rel = _get_reliability(conn, video_id)
             print(f"  Reliability: {rel}/10")
-            print(f"\n  Displaying with feh …")
-            os.system(f"feh --auto-zoom --image-bg '#333333' '{result['frame_path']}'")
+            print(f"\n  Displaying with feh …\n")
+            subprocess.Popen(
+                ["feh", "--auto-zoom", "--image-bg", "#333333", result["frame_path"]],
+                start_new_session=True,
+                close_fds=True,
+            )
             conn.close()
             return
         else:
