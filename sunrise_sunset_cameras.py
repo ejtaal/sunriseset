@@ -48,7 +48,7 @@ LLM_MODEL = VISION_MODEL
 
 
 def _has_description(conn, video_id: str) -> bool:
-    """Check if a video has a valid AI description (reviewed within 2 months)."""
+    """Check if a video has a valid AI description (reviewed within 60 days)."""
     row = conn.execute(
         "SELECT ai_description, last_reviewed FROM webcams WHERE video_id = ?",
         (video_id,)
@@ -57,12 +57,12 @@ def _has_description(conn, video_id: str) -> bool:
         return False  # No description
     if not row[1]:
         return False  # No review date → treat as stale
-    from datetime import timedelta
     try:
         review_date = datetime.fromisoformat(row[1])
     except (ValueError, TypeError):
         return False
-    return (datetime.utcnow() - review_date) < timedelta(days=60)
+    # Compare naive datetimes (both are UTC, stored without tzinfo)
+    return (datetime.now() - review_date) < timedelta(days=60)
 
 # ---------------------------------------------------------------------------
 # NOAA Solar Calculator
@@ -568,13 +568,13 @@ def main():
         else:
             unclassified_ids.add(vid)
 
-    # Count how many have descriptions but they're expired
-    for vid in set(str(r["video_id"]) for r in matches.itertuples()):
+    # Count how many unclassified have expired descriptions (vs no description at all)
+    for vid in unclassified_ids:
         row = conn.execute(
             "SELECT ai_description, last_reviewed FROM webcams WHERE video_id = ?",
             (vid,)
         ).fetchone()
-        if row and row[0] and row[0] != '' and (not row[1] or (datetime.utcnow() - datetime.fromisoformat(row[1])).days >= 60):
+        if row and row[0] and row[0] != '' and row[1]:
             expired_count += 1
 
     logger.info(f"\nAlready classified: {len(classified_ids)} | Expired (>60d): {expired_count} | Need classification: {len(unclassified_ids)}")
