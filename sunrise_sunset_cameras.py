@@ -19,6 +19,7 @@ Requires: pandas, Pillow, yt-dlp, ffmpeg, feh
 import base64
 import math
 import os
+import random
 import re
 import shutil
 import sqlite3
@@ -36,6 +37,15 @@ from PIL import Image
 # ---------------------------------------------------------------------------
 VISION_API_URL = "http://10.0.2.2:8080/upstream/unsloth-Qwen3.6-35B-A3B-standard/v1/chat/completions"
 VISION_MODEL = "unsloth/Qwen3.6-35B-A3B-GGUF:Q4_K_XL"
+
+
+def _has_description(conn, video_id: str) -> bool:
+    """Check if a video already has an AI description."""
+    row = conn.execute(
+        "SELECT 1 FROM webcams WHERE video_id = ? AND ai_description IS NOT NULL AND ai_description != ''",
+        (video_id,)
+    ).fetchone()
+    return row is not None
 
 # ---------------------------------------------------------------------------
 # NOAA Solar Calculator
@@ -367,8 +377,14 @@ def describe_frame(frame_path: str) -> str | None:
 # Main
 # ---------------------------------------------------------------------------
 def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Webcam sunrise/sunset finder")
+    parser.add_argument("--classify", type=int, default=0, help="Run N iterations to classify streams (no feh)")
+    args = parser.parse_args()
+
     print("=" * 70)
-    print("📷 Webcam Sunrise/Sunset — Random Pick")
+    print("📷 Webcam Sunrise/Sunset — Random Pick" if args.classify == 0 else "📷 Webcam Stream Classifier")
     print("=" * 70)
 
     # Load and calculate sun positions
@@ -408,74 +424,140 @@ def main():
 
     print(f"\nFound {len(matches)} webcam(s) at sunrise/sunset")
 
-    # Try up to 5 random webcams until we get a valid frame
-    MAX_ATTEMPTS = 5
+    # Determine how many classification rounds to run
+    num_rounds = args.classify if args.classify > 0 else 1
+
+    # Load DB to check existing classifications
     conn = sqlite3.connect(DB_PATH)
+    classified_ids = set()
+    unclassified_ids = set()
+    for _, row in matches.iterrows():
+        vid = str(row["video_id"])
+        if _has_description(conn, vid):
+            classified_ids.add(vid)
+        else:
+            unclassified_ids.add(vid)
 
-    for attempt in range(1, MAX_ATTEMPTS + 1):
-        picked = matches.sample(1).iloc[0]
-        direction = "☀️ SUNRISE" if picked["is_rising"] else "🌅 SUNSET"
+    print(f"\nAlready classified: {len(classified_ids)} | Need classification: {len(unclassified_ids)}")
+    print(f"Rounds to run: {num_rounds}")
 
-        print(f"\n{direction}")
-        print(f"  Title:       {picked['title']}")
-        print(f"  Location:    {picked['country'] or '—'}, {picked['region'] or '—'}")
-        print(f"  Coords:      {picked['lat']:.4f}, {picked['lon']:.4f}")
-        print(f"  Sun angle:   {picked['altitude']:.2f}°")
-        print(f"  Source:      {picked['source']}")
-        print(f"  Reliability: {picked['reliability']}/10")
+    success_count = 0
+    fail_count = 0
 
-        video_id = str(picked["video_id"])
+    for rnd in range(1, num_rounds + 1):
+        print(f"\n{'─' * 70}")
+        print(f"Round {rnd}/{num_rounds}")
+        print(f"{'─' * 70}")
 
-        print(f"\nGrabbing live frame …")
-        result = grab_live_frame(video_id)
+        # Bias selection: 90% from unclassified, 10% from all
+        if unclassified_ids and len(unclassified_ids) > 0 and random.random() < 0.9:
+            candidates = matches[matches["video_id"].astype(str).isin(unclassified_ids)]
+            if candidates.empty:
+                # Fall back to all if no unclassified match sunrise/sunset
+                candidates = matches
+        else:
+            candidates = matches
 
-        success = (
-            result["frame_path"] is not None
-            and os.path.isfile(result["frame_path"])
-            and result["is_black"] is not None
-            and not result["is_black"]
-        )
+        # Try up to 5 random webcams until we get a valid frame
+        MAX_ATTEMPTS = 5
+        found = False
 
-        _update_result(conn, video_id, result["resolution"], success)
-        conn.commit()
+        for attempt in range(1, MAX_ATTEMPTS + 1):
+            picked = candidates.sample(1).iloc[0]
+            video_id = str(picked["video_id"])
+            direction = "☀️ SUNRISE" if picked["is_rising"] else "🌅 SUNSET"
+            already_classified = video_id in classified_ids
 
-        if success:
+            print(f"\n{direction} | {'[CLASSIFYING]' if not already_classified else '[ALREADY CLASSIFIED]'}")
+            print(f"  Title:       {picked['title']}")
+            print(f"  Location:    {picked['country'] or '—'}, {picked['region'] or '—'}")
+            print(f"  Coords:      {picked['lat']:.4f}, {picked['lon']:.4f}")
+            print(f"  Sun angle:   {picked['altitude']:.2f}°")
+            print(f"  Reliability: {picked['reliability']}/10")
+            print(f"  Has desc:    {'yes' if already_classified else 'no'}")
+
+            print(f"  Grabbing live frame …")
+            result = grab_live_frame(video_id)
+
+            success = (
+                result["frame_path"] is not None
+                and os.path.isfile(result["frame_path"])
+                and result["is_black"] is not None
+                and not result["is_black"]
+            )
+
+            _update_result(conn, video_id, result["resolution"], success)
+            conn.commit()
+
+            if not success:
+                status = "video unavailable"
+                if result["is_black"] is True:
+                    status = "black/frozen frame"
+                elif result["frame_path"] is None:
+                    status = "download failed"
+                print(f"  {status}.")
+                if attempt < MAX_ATTEMPTS:
+                    print(f"  Trying another … ({attempt}/{MAX_ATTEMPTS})")
+                    continue
+                print(f"  Giving up on this one.")
+                fail_count += 1
+                found = True
+                break
+
             print(f"  Frame grabbed ({os.path.getsize(result['frame_path'])} bytes)")
             if result["resolution"]:
                 print(f"  Resolution:  {result['resolution']}")
 
-            # AI description
+            if already_classified:
+                # Still update reliability/resolution but skip AI description
+                rel = _get_reliability(conn, video_id)
+                print(f"  Reliability: {rel}/10")
+                classified_ids.add(video_id)  # still count as "seen"
+                success_count += 1
+                found = True
+                break
+
+            # AI description for unclassified
             print("  Generating AI description …")
             desc = describe_frame(result["frame_path"])
             if desc:
                 conn.execute("UPDATE webcams SET ai_description = ? WHERE video_id = ?", (desc, video_id))
                 conn.commit()
+                classified_ids.add(video_id)
                 print(f"  Description stored (len={len(desc)})")
+                success_count += 1
             else:
                 print("  Could not generate AI description.")
+                fail_count += 1
+            found = True
+            break
 
-            rel = _get_reliability(conn, video_id)
-            print(f"  Reliability: {rel}/10")
-            print(f"\n  Displaying with feh …\n")
+        if not found:
+            print("  No working stream found.")
+            fail_count += 1
+
+        # Display with feh only on the last round
+        if args.classify > 0 and rnd == num_rounds and os.path.isfile(LATEST_FRAME_PATH):
+            print(f"\n  Displaying last frame with feh …\n")
             subprocess.Popen(
-                ["timeout", "300", "feh", "--auto-zoom", "--image-bg", "#333333", result["frame_path"]],
+                ["timeout", "300", "feh", "--auto-zoom", "--image-bg", "#333333", LATEST_FRAME_PATH],
                 start_new_session=True,
                 close_fds=True,
             )
-            conn.close()
-            return
-        else:
-            status = "video unavailable"
-            if result["is_black"] is True:
-                status = "black/frozen frame"
-            elif result["frame_path"] is None:
-                status = "download failed"
-            print(f"  {status}.")
-            if attempt < MAX_ATTEMPTS:
-                print(f"  Trying another … ({attempt}/{MAX_ATTEMPTS})")
-                continue
 
-    print("\nNo working streams found after 5 attempts.")
+    # Summary
+    print(f"\n{'═' * 70}")
+    print(f"Classification complete: {success_count} success, {fail_count} failed")
+    conn.execute("""
+        SELECT
+            COUNT(*) as total,
+            SUM(CASE WHEN ai_description IS NOT NULL AND ai_description != '' THEN 1 ELSE 0 END) as with_desc,
+            SUM(CASE WHEN view_quality IS NOT NULL THEN 1 ELSE 0 END) as with_vq,
+            SUM(CASE WHEN highest_resolution IS NOT NULL THEN 1 ELSE 0 END) as with_res,
+            ROUND(AVG(reliability), 1) as avg_rel
+        FROM webcams
+    """).fetchone()
+
     conn.close()
 
 
