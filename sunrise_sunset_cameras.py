@@ -384,6 +384,73 @@ def grab_live_frame(video_id: str, title: str = ""):
             os.remove(tmp_ytdlp_log)
 
 
+def assess_image_quality(image_path: str) -> tuple[int, str]:
+    """Assess image quality from file. Returns (score 0-10, reason).
+    
+    Low scores for: monochromatic, B&W, blurry, washed out, low contrast.
+    """
+    try:
+        img = Image.open(image_path).convert("RGB")
+        pixels = list(img.getdata())
+        width, height = img.size
+        
+        # 1. Color saturation — check std dev of saturation
+        hsv_img = img.convert("HSV")
+        hsv_pixels = list(hsv_img.getdata())
+        saturations = [p[1] for p in hsv_pixels]
+        avg_sat = sum(saturations) / len(saturations)
+        sat_std = (sum((s - avg_sat) ** 2 for s in saturations) / len(saturations)) ** 0.5
+        
+        # 2. Sharpness — use Laplacian variance
+        gray_img = img.convert("L")
+        sharpness = gray_img.filter(ImageFilter.SHARPEN)
+        gray_pixels = list(gray_img.getdata())
+        sharp_pixels = list(sharpness.getdata())
+        sharpness_diff = [abs(g - s) for g, s in zip(gray_pixels, sharp_pixels)]
+        avg_sharpness = sum(sharpness_diff) / len(sharpness_diff)
+        
+        # 3. Contrast — std dev of luminance
+        luminance = [0.299 * p[0] + 0.587 * p[1] + 0.114 * p[2] for p in pixels]
+        avg_lum = sum(luminance) / len(luminance)
+        lum_std = (sum((l - avg_lum) ** 2 for l in luminance) / len(luminance)) ** 0.5
+        
+        # Scoring
+        score = 10
+        reasons = []
+        
+        # Low saturation → monochromatic/B&W
+        if avg_sat < 30:
+            score -= 5
+            reasons.append("monochromatic/near-B&W")
+        elif avg_sat < 60:
+            score -= 3
+            reasons.append("low color saturation")
+        
+        # Low sharpness → blurry
+        if avg_sharpness < 10:
+            score -= 4
+            reasons.append("blurry")
+        elif avg_sharpness < 20:
+            score -= 2
+            reasons.append("slightly blurry")
+        
+        # Low contrast → washed out
+        if lum_std < 20:
+            score -= 4
+            reasons.append("washed out/low contrast")
+        elif lum_std < 40:
+            score -= 2
+            reasons.append("low contrast")
+        
+        # Cap score
+        score = max(1, min(10, score))
+        reason = ", ".join(reasons) if reasons else "good image quality"
+        
+        return score, reason
+    except Exception:
+        return 5, "unable to assess"
+
+
 def describe_frame(frame_path: str, retry: int = 0) -> str | None:
     """
     Send a frame to the vision API and return an AI-generated description.
@@ -397,8 +464,8 @@ def describe_frame(frame_path: str, retry: int = 0) -> str | None:
             img.save(buf, format="JPEG", quality=75)
             img_b64 = base64.b64encode(buf.getvalue()).decode()
 
-        # Double max_tokens with each retry: 4096, 8192, 16384
-        max_tokens = 4096 * (2 ** retry)
+        # Double max_tokens with each retry: 8192 → 16384 → 32768
+        max_tokens = 8192 * (2 ** retry)
 
         payload = {
             "model": VISION_MODEL,
@@ -689,15 +756,43 @@ def main():
                 start_new_session=True,
                 close_fds=True,
             )
+
+            # Assess image quality before LLM
+            img_quality, img_reason = assess_image_quality(round_result["frame_path"])
+            if img_quality < 4:
+                logger.info(f"  Image quality: {img_quality}/10 ({img_reason})")
+                logger.info("  Skipping LLM — poor image quality")
+                # Generate description noting image issues
+                desc = f"Low-quality image ({img_reason}). Wide-angle view of the scene with limited visibility due to image degradation."
+                free_space = None
+                vq = img_quality
+                _elapsed = 0
+                conn.execute(
+                    "UPDATE webcams SET ai_description = ?, view_quality = ?, free_space = ? WHERE video_id = ?",
+                    (desc, vq, free_space, video_id),
+                )
+                _record_review(conn, video_id)
+                _update_result(conn, video_id, round_result["resolution"], True)
+                conn.commit()
+                logger.info(f"  Reliability: {_get_reliability(conn, video_id)}/10")
+                logger.info(f"  View quality: {vq}/10 (auto-assessed: poor image)")
+                logger.info(f"  Description:  {desc}")
+                rowid = conn.execute("SELECT rowid FROM webcams WHERE video_id = ?", (video_id,)).fetchone()[0]
+                classified_this_session.append((rowid, video_id, picked['title']))
+                classified_ids.add(video_id)
+                success_count += 1
+                found = True
+                break
+
             logger.info("  Generating AI description …")
             import time as _time
             _t0 = _time.time()
 
-            # Retry AI description up to 3 times (max_tokens doubles: 4096 → 8192 → 16384)
+            # Retry AI description up to 3 times (max_tokens: 8192 → 16384 → 32768)
             desc = None
             for _attempt in range(3):
                 if _attempt > 0:
-                    logger.info(f"  Retrying AI description (attempt {_attempt + 1}/3, max_tokens={4096 * (2 ** _attempt)}) …")
+                    logger.info(f"  Retrying AI description (attempt {_attempt + 1}/3, max_tokens={8192 * (2 ** _attempt)}) …")
                     time.sleep(3)
                 desc = describe_frame(round_result["frame_path"], retry=_attempt)
                 if desc:
