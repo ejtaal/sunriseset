@@ -654,8 +654,6 @@ def main():
                 and not round_result["is_black"]
             )
 
-            logger.info(f"  Reliability: {picked['reliability']}/10")
-
             if not round_success:
                 status = "video unavailable"
                 if round_result.get("is_black") is True:
@@ -665,6 +663,7 @@ def main():
                 elif round_result["frame_path"] is None:
                     status = "download failed"
                 logger.info(f"  {status}.")
+                logger.info(f"  Reliability: {picked['reliability']}/10")
                 if attempt < MAX_ATTEMPTS:
                     logger.info(f"  Trying another … ({attempt}/{MAX_ATTEMPTS})")
                     logger.info(f"  Waiting 30s before retry …")
@@ -678,11 +677,10 @@ def main():
             logger.info(f"  Frame grabbed ({os.path.getsize(round_result['frame_path'])} bytes)")
             if round_result["resolution"]:
                 logger.info(f"  Resolution:  {round_result['resolution']}")
+            logger.info(f"  Reliability: {picked['reliability']}/10")
 
             if already_classified:
                 # Still update reliability/resolution but skip AI description
-                rel = _get_reliability(conn, video_id)
-                logger.info(f"  Reliability: {rel}/10")
                 _record_review(conn, video_id)
                 conn.commit()
                 classified_ids.add(video_id)  # still count as "seen"
