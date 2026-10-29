@@ -509,7 +509,7 @@ def main():
             print(f"  Title:       {picked['title']}")
             print(f"  Location:    {picked['country'] or '—'}, {picked['region'] or '—'}")
             print(f"  Coords:      {picked['lat']:.4f}, {picked['lon']:.4f}")
-            print(f"  URL:           https://www.youtube.com/embed/{video_id}")
+            print(f"  URL:           https://www.youtube.com/watch?v={video_id}")
             print(f"  Sun angle:   {picked['altitude']:.2f}°")
             print(f"  Reliability: {picked['reliability']}/10")
             print(f"  Has desc:    {'yes' if already_classified else 'no'}")
