@@ -27,6 +27,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.request
 from datetime import datetime, timezone, timedelta
 from io import BytesIO
@@ -315,6 +316,7 @@ def grab_live_frame(video_id: str, title: str = ""):
             f'yt-dlp -o "{tmp_mp4}" -f "bestvideo+bestaudio/bestvideo/best" '
             f'--download-sections "*00:00-00:02" '
             f'--cookies-from-browser chromium '
+            f'--no-check-certificates '
             f'"https://www.youtube.com/embed/{video_id}?autoplay=1&mute=1" '
             f'>"{tmp_ytdlp_log}" 2>&1'
         )
@@ -619,6 +621,11 @@ def main():
                 start_new_session=True,
                 close_fds=True,
             )
+
+        # Pause between rounds
+        if rnd < num_rounds:
+            logger.info("  Waiting 5s before next round …")
+            time.sleep(5)
 
     # Summary
     logger.info(f"\n{'═' * 70}")
