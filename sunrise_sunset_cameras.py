@@ -395,7 +395,7 @@ def main():
             print(f"  Reliability: {rel}/10")
             print(f"\n  Displaying with feh …\n")
             subprocess.Popen(
-                ["timeout", "15", "feh", "--auto-zoom", "--image-bg", "#333333", result["frame_path"]],
+                ["timeout", "300", "feh", "--auto-zoom", "--image-bg", "#333333", result["frame_path"]],
                 start_new_session=True,
                 close_fds=True,
             )
