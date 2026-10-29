@@ -168,6 +168,16 @@ def _update_result(conn, video_id: str, resolution: str, success: bool) -> None:
     """, (new_reliability, best_resolution, video_id))
 
 
+def _record_review(conn, video_id: str) -> None:
+    """Record that this video was reviewed now."""
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    conn.execute(
+        "UPDATE webcams SET last_reviewed = ? WHERE video_id = ?",
+        (now, video_id)
+    )
+
+
 def load_webcams() -> pd.DataFrame:
     """Load webcams with known coordinates and a video ID."""
     conn = sqlite3.connect(DB_PATH)
@@ -512,6 +522,8 @@ def main():
                 # Still update reliability/resolution but skip AI description
                 rel = _get_reliability(conn, video_id)
                 print(f"  Reliability: {rel}/10")
+                _record_review(conn, video_id)
+                conn.commit()
                 classified_ids.add(video_id)  # still count as "seen"
                 success_count += 1
                 found = True
@@ -522,6 +534,7 @@ def main():
             desc = describe_frame(result["frame_path"])
             if desc:
                 conn.execute("UPDATE webcams SET ai_description = ? WHERE video_id = ?", (desc, video_id))
+                _record_review(conn, video_id)
                 conn.commit()
                 classified_ids.add(video_id)
                 print(f"  Description stored (len={len(desc)})")
