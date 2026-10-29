@@ -517,7 +517,10 @@ def main():
             print(f"  Coords:      {picked['lat']:.4f}, {picked['lon']:.4f}")
             yt_url = f"https://www.youtube.com/watch?v={video_id}"
             all_urls_tried.add(yt_url)
-            print(f"  URL:         {yt_url}")
+            print(f"  ── {yt_url} ──")
+            print(f"  Title:       {picked['title']}")
+            print(f"  Location:    {picked['country'] or '—'}, {picked['region'] or '—'}")
+            print(f"  Coords:      {picked['lat']:.4f}, {picked['lon']:.4f}")
             print(f"  Sun angle:   {picked['altitude']:.2f}°")
             print(f"  Reliability: {picked['reliability']}/10")
             print(f"  Has desc:    {'yes' if already_classified else 'no'}")
