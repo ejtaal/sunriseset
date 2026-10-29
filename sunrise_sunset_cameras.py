@@ -283,7 +283,7 @@ def _get_frame_resolution(frame_path: str) -> str | None:
         return None
 
 
-def grab_live_frame(video_id: str):
+def grab_live_frame(video_id: str, title: str = ""):
     """
     Download 2 seconds from the highest-res live stream and extract a frame.
 
@@ -291,13 +291,16 @@ def grab_live_frame(video_id: str):
         frame_path: path to the .jpg file (or None on failure)
         resolution: resolution string like "1920x1080" (or None)
         is_black: True if the frame appears black/frozen (or None if failed)
+        error: error message from yt-dlp (or None)
     """
     tmp_mp4 = os.path.join(tempfile.gettempdir(), f"wls_frame_{video_id}.mp4")
     tmp_jpg = os.path.join(tempfile.gettempdir(), f"wls_frame_{video_id}.jpg")
     tmp_part = tmp_mp4 + ".part"
+    tmp_ytdlp_log = os.path.join(tempfile.gettempdir(), f"wls_ytdlp_{video_id}.log")
+    yt_url = f"https://www.youtube.com/embed/{video_id}?autoplay=1&mute=1"
 
     # Clean up stale files
-    for f in (tmp_mp4, tmp_jpg, tmp_part):
+    for f in (tmp_mp4, tmp_jpg, tmp_part, tmp_ytdlp_log):
         if os.path.isfile(f):
             os.remove(f)
 
@@ -307,11 +310,33 @@ def grab_live_frame(video_id: str):
             f'yt-dlp -o "{tmp_mp4}" -f "bestvideo+bestaudio/bestvideo/best" '
             f'--download-sections "*00:00-00:02" '
             f'"https://www.youtube.com/embed/{video_id}?autoplay=1&mute=1" '
-            f'>/dev/null 2>&1'
+            f'>"{tmp_ytdlp_log}" 2>&1'
         )
 
+        # Read yt-dlp output for error message
+        error = None
+        try:
+            with open(tmp_ytdlp_log) as f:
+                log = f.read().strip()
+                if log:
+                    # Extract the last error line
+                    lines = log.split('\n')
+                    for line in reversed(lines):
+                        if 'ERROR' in line or 'error' in line or 'not available' in line.lower():
+                            error = line.strip()
+                            break
+                    if error is None and result != 0:
+                        error = log.split('\n')[-1].strip() or f"exit code {result}"
+                    elif error is None and log:
+                        error = log.split('\n')[-1].strip()[:200]
+        except Exception:
+            pass
+
+        if error:
+            print(f"  yt-dlp: {error}")
+
         if result != 0 or not os.path.isfile(tmp_mp4) or os.path.getsize(tmp_mp4) < 1000:
-            return {"frame_path": None, "resolution": None, "is_black": None}
+            return {"frame_path": None, "resolution": None, "is_black": None, "error": error}
 
         # Extract single frame at ~1 second into the clip
         ret = os.system(
@@ -332,11 +357,13 @@ def grab_live_frame(video_id: str):
             except Exception:
                 pass
 
-        return {"frame_path": tmp_jpg, "resolution": resolution, "is_black": is_black}
+        return {"frame_path": tmp_jpg, "resolution": resolution, "is_black": is_black, "error": None}
 
     finally:
         if os.path.isfile(tmp_mp4):
             os.remove(tmp_mp4)
+        if os.path.isfile(tmp_ytdlp_log):
+            os.remove(tmp_ytdlp_log)
 
 
 def describe_frame(frame_path: str) -> str | None:
@@ -482,12 +509,13 @@ def main():
             print(f"  Title:       {picked['title']}")
             print(f"  Location:    {picked['country'] or '—'}, {picked['region'] or '—'}")
             print(f"  Coords:      {picked['lat']:.4f}, {picked['lon']:.4f}")
+            print(f"  URL:           https://www.youtube.com/embed/{video_id}")
             print(f"  Sun angle:   {picked['altitude']:.2f}°")
             print(f"  Reliability: {picked['reliability']}/10")
             print(f"  Has desc:    {'yes' if already_classified else 'no'}")
 
             print(f"  Grabbing live frame …")
-            result = grab_live_frame(video_id)
+            result = grab_live_frame(video_id, picked['title'])
 
             success = (
                 result["frame_path"] is not None
@@ -501,8 +529,10 @@ def main():
 
             if not success:
                 status = "video unavailable"
-                if result["is_black"] is True:
+                if result.get("is_black") is True:
                     status = "black/frozen frame"
+                elif result.get("error"):
+                    status = result["error"][:150]
                 elif result["frame_path"] is None:
                     status = "download failed"
                 print(f"  {status}.")
