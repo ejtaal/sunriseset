@@ -2,8 +2,9 @@
 
 ## Git Commit Format
 - **Author:** Erik Taal <ET@debian> (always use `-m` with `--author="Erik Taal <ET@debian>"`)
-- **Co-authored-by:** Add at end of commit message body
-- **Directed-by:** Add at end of commit message body
+- **Co-authored-by (LLM model):** Use `Opencode/{modelfamily} <opencode@local>` — adapt to current model family (e.g. `Opencode/Qwen3.6` for Qwen3.6-based models, `Opencode/Claude` for Claude-based models)
+- **Co-authored-by (OpenCode):** `OpenCode <opencode@local>`
+- **Directed-by:** `Directed-by: Erik Taal`
 
 Example:
 ```bash
@@ -14,7 +15,7 @@ git commit \
 Longer explanation here.
 
 Co-authored-by: OpenCode <opencode@local>
-Co-authored-by: unsloth-Qwen3.6-35B-A3B-standard <unsloth@local>
+Co-authored-by: Opencode/Qwen3.6 <opencode@local>
 Directed-by: Erik Taal"
 ```
 
