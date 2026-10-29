@@ -538,6 +538,7 @@ def main():
                 conn.commit()
                 classified_ids.add(video_id)
                 print(f"  Description stored (len={len(desc)})")
+                print(f"  {desc[:200]}…")
                 success_count += 1
             else:
                 print("  Could not generate AI description.")
