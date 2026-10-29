@@ -481,6 +481,7 @@ def main():
 
     success_count = 0
     fail_count = 0
+    all_urls_tried = set()
 
     for rnd in range(1, num_rounds + 1):
         print(f"\n{'─' * 70}")
@@ -514,7 +515,9 @@ def main():
             print(f"  Title:       {picked['title']}")
             print(f"  Location:    {picked['country'] or '—'}, {picked['region'] or '—'}")
             print(f"  Coords:      {picked['lat']:.4f}, {picked['lon']:.4f}")
-            print(f"  URL:           https://www.youtube.com/watch?v={video_id}")
+            yt_url = f"https://www.youtube.com/watch?v={video_id}"
+            all_urls_tried.add(yt_url)
+            print(f"  URL:         {yt_url}")
             print(f"  Sun angle:   {picked['altitude']:.2f}°")
             print(f"  Reliability: {picked['reliability']}/10")
             print(f"  Has desc:    {'yes' if already_classified else 'no'}")
@@ -599,6 +602,12 @@ def main():
     # Summary
     print(f"\n{'═' * 70}")
     print(f"Classification complete: {success_count} success, {fail_count} failed")
+    if all_urls_tried:
+        print(f"\n{'─' * 70}")
+        print(f"URLs tried ({len(all_urls_tried)} unique):")
+        for url in sorted(all_urls_tried):
+            print(f"  {url}")
+        print(f"{'─' * 70}")
     conn.execute("""
         SELECT
             COUNT(*) as total,
