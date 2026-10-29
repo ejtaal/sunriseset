@@ -451,7 +451,7 @@ Description:
 {description}"""
                 }
             ],
-            "max_tokens": 4,
+            "max_tokens": 256,
             "temperature": 0,
         }
         req = urllib.request.Request(
@@ -460,12 +460,18 @@ Description:
             headers={"Content-Type": "application/json"},
             method="POST"
         )
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.urlopen(req, timeout=60) as resp:
             data = __import__("json").loads(resp.read())
             text = data["choices"][0]["message"]["content"].strip()
-            for c in text:
-                if c.isdigit():
-                    val = int(c)
+            # Reasoning models put answer in reasoning_content
+            reasoning = data["choices"][0]["message"].get("reasoning_content", "")
+            # Check content first, then reasoning
+            for src in [text, reasoning]:
+                # Look for a number at the end
+                import re
+                nums = re.findall(r'\b([1-9]|10)\b', src)
+                if nums:
+                    val = int(nums[-1])
                     if 1 <= val <= 10:
                         return val
             return None
