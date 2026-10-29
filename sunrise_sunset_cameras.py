@@ -663,7 +663,17 @@ def main():
             logger.info("  Generating AI description …")
             import time as _time
             _t0 = _time.time()
-            desc = describe_frame(round_result["frame_path"])
+
+            # Retry AI description up to 3 times
+            desc = None
+            for _attempt in range(3):
+                if _attempt > 0:
+                    logger.info(f"  Retrying AI description (attempt {_attempt + 1}/3) …")
+                    time.sleep(3)
+                desc = describe_frame(round_result["frame_path"])
+                if desc:
+                    break
+
             _elapsed = _time.time() - _t0
             if desc:
                 # Extract free space direction from description
@@ -674,8 +684,15 @@ def main():
                         free_space = line.split(':', 1)[1].strip().upper()
                         break
 
-                # Auto-assess view quality from description
-                vq = assess_view_quality(desc)
+                # Retry view quality up to 3 times
+                vq = None
+                for _attempt in range(3):
+                    if _attempt > 0:
+                        logger.info(f"  Retrying view quality (attempt {_attempt + 1}/3) …")
+                        time.sleep(3)
+                    vq = assess_view_quality(desc)
+                    if vq is not None:
+                        break
                 conn.execute(
                     "UPDATE webcams SET ai_description = ?, view_quality = ?, free_space = ? WHERE video_id = ?",
                     (desc, vq, free_space, video_id),
