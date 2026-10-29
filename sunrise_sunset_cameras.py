@@ -1,29 +1,32 @@
 #!/usr/bin/env python3
 """
-Find a random webcam at sunrise or sunset, grab its thumbnail, and display it.
+Find a random webcam at sunrise or sunset, grab its highest-res live frame,
+and display it. Updates reliability and resolution stats in the database.
 
 Workflow:
-  1. Load all webcams with coordinates
+  1. Load all webcams with known coordinates and a video ID
   2. Calculate sun position for each
   3. Filter for sunrise (-2° to -1°, rising) or sunset (0° to 2°, setting)
-  4. Pick one at random
-  5. Fetch the YouTube thumbnail
-  6. Display it with feh
+  4. Pick one at random (up to 5 retries)
+  5. Grab 2 seconds of the highest-res stream and extract a frame
+  6. Check for black/frozen images
+  7. Update reliability (±1) and highest_resolution in DB
+  8. Display the frame with feh
 
-Requires: pandas, requests, feh
+Requires: pandas, Pillow, yt-dlp, ffmpeg, feh
 """
 
 import math
 import os
-import random
 import re
-import shutil
 import sqlite3
+import subprocess
 import tempfile
 from datetime import datetime, timezone, timedelta
+from io import BytesIO
 
 import pandas as pd
-import requests
+from PIL import Image
 
 # ---------------------------------------------------------------------------
 # NOAA Solar Calculator
@@ -100,16 +103,57 @@ def _sun_position(utc_dt: datetime, lat: float, lon: float) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Database
+# Database helpers
 # ---------------------------------------------------------------------------
 DB_PATH = "/tmp/lww_webcams.db"
 
 
+def _get_reliability(conn, video_id: str) -> int:
+    """Get current reliability score for a video, default 5."""
+    row = conn.execute(
+        "SELECT reliability FROM webcams WHERE video_id = ?", (video_id,)
+    ).fetchone()
+    return row[0] if row else 5
+
+
+def _update_result(conn, video_id: str, resolution: str, success: bool) -> None:
+    """Update reliability (+1 success, -1 failure) and highest_resolution."""
+    current = _get_reliability(conn, video_id)
+    new_reliability = max(0, min(10, current + (1 if success else -1)))
+
+    # Update resolution to the highest seen
+    existing = conn.execute(
+        "SELECT highest_resolution FROM webcams WHERE video_id = ?", (video_id,)
+    ).fetchone()
+    existing_res = existing[0] if existing else None
+
+    # Compare resolutions: keep the higher one
+    def _res_to_int(r):
+        if not r or "x" not in r:
+            return 0
+        try:
+            w, h = r.split("x")
+            return int(w) * int(h)
+        except (ValueError, TypeError):
+            return 0
+
+    new_res_pixels = _res_to_int(resolution)
+    existing_res_pixels = _res_to_int(existing_res) if existing_res else 0
+    best_resolution = resolution if new_res_pixels >= existing_res_pixels else existing_res
+
+    conn.execute("""
+        UPDATE webcams
+        SET reliability = ?, highest_resolution = ?
+        WHERE video_id = ?
+    """, (new_reliability, best_resolution, video_id))
+
+
 def load_webcams() -> pd.DataFrame:
+    """Load webcams with known coordinates and a video ID."""
     conn = sqlite3.connect(DB_PATH)
     df = pd.read_sql_query("""
         SELECT url, title, country, region, latitude, longitude, source,
-               stream_url, video_id
+               stream_url, video_id, reliability
         FROM webcams
         WHERE latitude != '' AND longitude != ''
           AND latitude IS NOT NULL AND longitude IS NOT NULL
@@ -123,14 +167,13 @@ def load_webcams() -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
-# YouTube thumbnail
+# Video ID extraction
 # ---------------------------------------------------------------------------
 def extract_video_id(url: str) -> str | None:
     """Extract YouTube video ID from a URL, embed string, or raw ID."""
     if not url:
         return None
     url = str(url)
-    # Try to extract from URL patterns
     for pattern in [
         r"youtube\.com/embed/([A-Za-z0-9_-]{11})",
         r"youtube\.com/watch\?v=([A-Za-z0-9_-]{11})",
@@ -139,28 +182,129 @@ def extract_video_id(url: str) -> str | None:
         m = re.search(pattern, url)
         if m:
             return m.group(1)
-    # If it's already a clean 11-char video ID, return it
     if re.match(r"^[A-Za-z0-9_-]{11}$", url):
         return url
     return None
 
 
-def get_youtube_thumbnail(video_id: str, quality: str = "maxresdefault") -> str:
-    """Return the URL for a YouTube thumbnail."""
-    return f"https://img.youtube.com/vi/{video_id}/{quality}.jpg"
+# ---------------------------------------------------------------------------
+# Screengrab
+# ---------------------------------------------------------------------------
+def _is_black_or_frozen(image_path: str) -> bool:
+    """
+    Check if an image is mostly black, frozen, or has very low visual content.
 
-
-def download_thumbnail(url: str, dest: str) -> bool:
-    """Download an image from URL to dest path. Returns True on success."""
+    Returns True if the image appears to be black/frozen/unusable.
+    """
     try:
-        resp = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
-        if resp.status_code == 200 and len(resp.content) > 1000:
-            with open(dest, "wb") as f:
-                f.write(resp.content)
+        img = Image.open(image_path).convert("RGB")
+        # Use numpy-style flattening for efficiency; fall back for older Pillow
+        try:
+            pixels = list(img.get_flattened_data("RGB"))
+        except AttributeError:
+            pixels = list(img.getdata())
+        width, height = img.size
+
+        # Check average brightness — if very dark, likely black/frozen
+        avg_brightness = sum(sum(p) / 3 for p in pixels) / len(pixels)
+        if avg_brightness < 8:
             return True
+
+        # Check variance — frozen/black frames have very low variance
+        r_vals = [p[0] for p in pixels]
+        g_vals = [p[1] for p in pixels]
+        b_vals = [p[2] for p in pixels]
+
+        def _variance(vals):
+            mean = sum(vals) / len(vals)
+            return sum((v - mean) ** 2 for v in vals) / len(vals)
+
+        r_var = _variance(r_vals)
+        g_var = _variance(g_vals)
+        b_var = _variance(b_vals)
+        avg_var = (r_var + g_var + b_var) / 3
+
+        # Very low variance (especially < 10) means frozen/still image
+        if avg_var < 10:
+            return True
+
+        # Check for large areas of uniform color (e.g., black overlay)
+        # Sample the center 50% of the image
+        cx, cy = width // 2, height // 2
+        quarter = max(width, height) // 4
+        center_region = []
+        for y in range(cy - quarter, cy + quarter):
+            for x in range(cx - quarter, cx + quarter):
+                if 0 <= x < width and 0 <= y < height:
+                    center_region.append(img.getpixel((x, y)))
+        if center_region:
+            center_avg = sum(sum(p) / 3 for p in center_region) / len(center_region)
+            if center_avg < 5:
+                return True
+
+        return False
+
     except Exception:
-        pass
-    return False
+        return True
+
+
+def _get_frame_resolution(frame_path: str) -> str | None:
+    """Get resolution of a frame image using Pillow."""
+    try:
+        img = Image.open(frame_path)
+        w, h = img.size
+        return f"{w}x{h}"
+    except Exception:
+        return None
+
+
+def grab_live_frame(video_id: str):
+    """
+    Download 2 seconds from the highest-res live stream and extract a frame.
+
+    Returns dict with:
+        frame_path: path to the .jpg file (or None on failure)
+        resolution: resolution string like "1920x1080" (or None)
+        is_black: True if the frame appears black/frozen (or None if failed)
+    """
+    tmp_mp4 = os.path.join(tempfile.gettempdir(), f"wls_frame_{video_id}.mp4")
+    tmp_jpg = os.path.join(tempfile.gettempdir(), f"wls_frame_{video_id}.jpg")
+    tmp_part = tmp_mp4 + ".part"
+
+    # Clean up stale files
+    for f in (tmp_mp4, tmp_jpg, tmp_part):
+        if os.path.isfile(f):
+            os.remove(f)
+
+    try:
+        # Download 2 seconds — best available video quality
+        result = os.system(
+            f'yt-dlp -o "{tmp_mp4}" -f "bestvideo+bestaudio/bestvideo/best" '
+            f'--download-sections "*00:00-00:02" '
+            f'"https://www.youtube.com/embed/{video_id}?autoplay=1&mute=1" '
+            f'>/dev/null 2>&1'
+        )
+
+        if result != 0 or not os.path.isfile(tmp_mp4) or os.path.getsize(tmp_mp4) < 1000:
+            return {"frame_path": None, "resolution": None, "is_black": None}
+
+        # Extract single frame at ~1 second into the clip
+        result = os.system(
+            f'ffmpeg -y -i "{tmp_mp4}" -ss 00:00:01 -frames:v 1 -q:v 1 -update 1 '
+            f'"{tmp_jpg}" 2>/dev/null'
+        )
+
+        if result != 0 or not os.path.isfile(tmp_jpg) or os.path.getsize(tmp_jpg) < 1000:
+            return {"frame_path": None, "resolution": None, "is_black": None}
+
+        resolution = _get_frame_resolution(tmp_jpg)
+        is_black = _is_black_or_frozen(tmp_jpg)
+
+        return {"frame_path": tmp_jpg, "resolution": resolution, "is_black": is_black}
+
+    finally:
+        if os.path.isfile(tmp_mp4):
+            os.remove(tmp_mp4)
 
 
 # ---------------------------------------------------------------------------
@@ -171,11 +315,11 @@ def main():
     print("📷 Webcam Sunrise/Sunset — Random Pick")
     print("=" * 70)
 
-    # Load and calculate
+    # Load and calculate sun positions
     df = load_webcams()
     now = datetime.now(timezone.utc)
     print(f"Time: {now.strftime('%Y-%m-%d %H:%M:%S UTC')}")
-    print(f"Webcams with coords: {len(df)}")
+    print(f"Webcams with coords + video: {len(df)}")
 
     results = []
     for _, row in df.iterrows():
@@ -188,6 +332,8 @@ def main():
             "lon": row["longitude"],
             "source": row["source"],
             "url": row["url"],
+            "video_id": row["video_id"],
+            "reliability": int(row.get("reliability") or 5),
             "altitude": pos["altitude"],
             "is_rising": pos["is_rising"],
         })
@@ -206,46 +352,60 @@ def main():
 
     print(f"\nFound {len(matches)} webcam(s) at sunrise/sunset")
 
-    # Pick one at random
-    picked = matches.sample(1).iloc[0]
-    direction = "☀️ SUNRISE" if picked["is_rising"] else "🌅 SUNSET"
+    # Try up to 5 random webcams until we get a valid frame
+    MAX_ATTEMPTS = 5
+    conn = sqlite3.connect(DB_PATH)
 
-    print(f"\n{direction}")
-    print(f"  Title:       {picked['title']}")
-    print(f"  Location:    {picked['country'] or '—'}, {picked['region'] or '—'}")
-    print(f"  Coords:      {picked['lat']:.4f}, {picked['lon']:.4f}")
-    print(f"  Sun angle:   {picked['altitude']:.2f}°")
-    print(f"  Source:      {picked['source']}")
-    print()
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        picked = matches.sample(1).iloc[0]
+        direction = "☀️ SUNRISE" if picked["is_rising"] else "🌅 SUNSET"
 
-    # Try to grab thumbnail
-    print("Fetching thumbnail …")
-    video_id = extract_video_id(str(picked["url"]))
-    if not video_id:
-        video_id = extract_video_id(str(picked.get("stream_url", "")))
-    if not video_id:
-        video_id = str(picked.get("video_id", "")) or None
+        print(f"\n{direction}")
+        print(f"  Title:       {picked['title']}")
+        print(f"  Location:    {picked['country'] or '—'}, {picked['region'] or '—'}")
+        print(f"  Coords:      {picked['lat']:.4f}, {picked['lon']:.4f}")
+        print(f"  Sun angle:   {picked['altitude']:.2f}°")
+        print(f"  Source:      {picked['source']}")
+        print(f"  Reliability: {picked['reliability']}/10")
 
-    if video_id:
-        thumb_url = get_youtube_thumbnail(video_id, "maxresdefault")
-        tmp_file = os.path.join(tempfile.gettempdir(), f"wls_thumb_{video_id}.jpg")
-    else:
-        # Fallback: try hqdefault
-        if video_id:
-            thumb_url = get_youtube_thumbnail(video_id, "hqdefault")
-            tmp_file = os.path.join(tempfile.gettempdir(), f"wls_thumb_{video_id}.jpg")
-        else:
-            print("  No YouTube video ID found — skipping image.")
-            print(f"\n  Open in browser: {picked['url']}")
+        video_id = str(picked["video_id"])
+
+        print(f"\nGrabbing live frame …")
+        result = grab_live_frame(video_id)
+
+        success = (
+            result["frame_path"] is not None
+            and os.path.isfile(result["frame_path"])
+            and result["is_black"] is not None
+            and not result["is_black"]
+        )
+
+        _update_result(conn, video_id, result["resolution"], success)
+        conn.commit()
+
+        if success:
+            print(f"  Frame grabbed ({os.path.getsize(result['frame_path'])} bytes)")
+            if result["resolution"]:
+                print(f"  Resolution:  {result['resolution']}")
+            rel = _get_reliability(conn, video_id)
+            print(f"  Reliability: {rel}/10")
+            print(f"\n  Displaying with feh …")
+            os.system(f"feh --auto-zoom --image-bg '#333333' '{result['frame_path']}'")
+            conn.close()
             return
+        else:
+            status = "video unavailable"
+            if result["is_black"] is True:
+                status = "black/frozen frame"
+            elif result["frame_path"] is None:
+                status = "download failed"
+            print(f"  {status}.")
+            if attempt < MAX_ATTEMPTS:
+                print(f"  Trying another … ({attempt}/{MAX_ATTEMPTS})")
+                continue
 
-    if download_thumbnail(thumb_url, tmp_file):
-        print(f"  Downloaded: {thumb_url}")
-        print(f"  Displaying with feh …\n")
-        os.system(f"feh --auto-zoom --border-color '#333333' '{tmp_file}'")
-    else:
-        print(f"  Could not download thumbnail from {thumb_url}")
-        print(f"\n  Open in browser: {picked['url']}")
+    print("\nNo working streams found after 5 attempts.")
+    conn.close()
 
 
 if __name__ == "__main__":
