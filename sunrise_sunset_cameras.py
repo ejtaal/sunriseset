@@ -740,6 +740,7 @@ def main():
                 _record_review(conn, video_id)
                 conn.commit()
                 logger.info(f"  Reliability: {_get_reliability(conn, video_id)}/10")
+                logger.info(f"  AI description: already exists (skipped)")
                 classified_ids.add(video_id)
                 success_count += 1
                 found = True
