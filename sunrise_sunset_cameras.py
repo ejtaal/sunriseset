@@ -475,7 +475,7 @@ def describe_frame(frame_path: str, retry: int = 0) -> str | None:
                     "content": [
                         {
                             "type": "text",
-                            "text": "Describe this webcam scene in 3-5 sentences. Focus on:\n- Overall setting (coast, city, mountain, etc.)\n- Main visible elements (buildings, water, landscape)\n- Sky conditions and lighting — estimate sky coverage as a percentage (e.g. 'sky visible in ~70% of frame')\n- Camera perspective (wide/narrow, high/low angle) — note if FOV is wide panoramic or tight\n\nDetermine which of the 8 compass directions has the most empty space suitable for text overlay (N=top, NE=top-right, E=right, SE=bottom-right, S=bottom, SW=bottom-left, W=left, NW=top-left). Output 'FREE_SPACE: ' followed by the direction letter at the very end, on its own line.\n\nNo weather details, no itemized foreground lists. Keep it natural and concise."
+                            "text": "Describe this webcam scene in 3-5 sentences. Focus on:\n- Overall setting (coast, city, mountain, etc.)\n- Main visible elements (buildings, water, landscape)\n- Sky conditions and lighting — estimate sky coverage as a percentage (e.g. 'sky visible in ~70% of frame')\n- Camera perspective (wide/narrow, high/low angle) — note if FOV is wide panoramic or tight\n\nNo weather details, no itemized foreground lists. Keep it natural and concise."
                         },
                         {
                             "type": "image_url",
@@ -764,12 +764,11 @@ def main():
                 logger.info("  Skipping LLM — poor image quality")
                 # Generate description noting image issues
                 desc = f"Low-quality image ({img_reason}). Wide-angle view of the scene with limited visibility due to image degradation."
-                free_space = None
                 vq = img_quality
                 _elapsed = 0
                 conn.execute(
-                    "UPDATE webcams SET ai_description = ?, view_quality = ?, free_space = ? WHERE video_id = ?",
-                    (desc, vq, free_space, video_id),
+                    "UPDATE webcams SET ai_description = ?, view_quality = ? WHERE video_id = ?",
+                    (desc, vq, video_id),
                 )
                 _record_review(conn, video_id)
                 _update_result(conn, video_id, round_result["resolution"], True)
@@ -801,14 +800,6 @@ def main():
 
             _elapsed = _time.time() - _t0
             if desc:
-                # Extract free space direction from description
-                free_space = None
-                for line in desc.split('\n'):
-                    line = line.strip()
-                    if line.startswith('FREE_SPACE:'):
-                        free_space = line.split(':', 1)[1].strip().upper()
-                        break
-
                 # Retry view quality up to 3 times
                 vq = None
                 vq_reasoning = ""
@@ -820,8 +811,8 @@ def main():
                     if vq is not None:
                         break
                 conn.execute(
-                    "UPDATE webcams SET ai_description = ?, view_quality = ?, free_space = ?, view_quality_reasoning = ? WHERE video_id = ?",
-                    (desc, vq, free_space, vq_reasoning, video_id),
+                    "UPDATE webcams SET ai_description = ?, view_quality = ?, view_quality_reasoning = ? WHERE video_id = ?",
+                    (desc, vq, vq_reasoning, video_id),
                 )
                 _record_review(conn, video_id)
                 # Update reliability/resolution AFTER AI description
@@ -830,8 +821,6 @@ def main():
                 logger.info(f"  Reliability: {_get_reliability(conn, video_id)}/10")
                 classified_ids.add(video_id)
                 logger.info(f"  Description stored (len={len(desc)})")
-                if free_space:
-                    logger.info(f"  Free space:     {free_space} (text overlay area)")
                 if vq:
                     logger.info(f"  View quality:   {vq}/10")
                 else:
@@ -898,16 +887,15 @@ def main():
         logger.info(f"Cameras classified this session ({len(classified_this_session)}):")
         for rowid, video_id, title in classified_this_session:
             info = conn.execute("""
-                SELECT reliability, view_quality, free_space, highest_resolution, last_reviewed
+                SELECT reliability, view_quality, highest_resolution, last_reviewed
                 FROM webcams WHERE rowid = ?
             """, (rowid,)).fetchone()
             if info:
-                rel, vq, fs, res, reviewed = info
+                rel, vq, res, reviewed = info
                 logger.info(f"\n  Title:          {title}")
                 logger.info(f"  URL:            https://www.youtube.com/watch?v={video_id}")
                 logger.info(f"  Reliability:    {rel}/10")
                 logger.info(f"  View quality:   {vq if vq else 'N/A'}")
-                logger.info(f"  Free space:     {fs if fs else 'N/A'} (text overlay area)")
                 logger.info(f"  Resolution:     {res if res else 'N/A'}")
                 logger.info(f"  Reviewed:       {reviewed if reviewed else 'N/A'}")
                 # Get description
