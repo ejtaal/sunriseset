@@ -888,10 +888,13 @@ def main():
                 start_new_session=True,
                 close_fds=True,
             )
-            # Lower feh window behind others
-            import subprocess as _sub
-            _sub.run(["sh", "-c", "sleep 0.5 && xdotool search --name 'feh' windowsize --sync --sync 90% 90% && wmctrl -a feh 2>/dev/null; xdotool search --name 'feh' windowlower 2>/dev/null"], 
-                     capture_output=True, timeout=5)
+            # Lower feh window behind others (non-fatal)
+            try:
+                subprocess.run(["sh", "-c",
+                    "sleep 0.5 && xdotool search --name feh windowlower 2>/dev/null"],
+                    capture_output=True, timeout=5)
+            except Exception:
+                pass
             found = True
             break
 
