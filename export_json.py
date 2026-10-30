@@ -3,8 +3,17 @@
 
 import argparse
 import json
+import re
 import sqlite3
 import sys
+
+
+def youtube_to_embed(url: str) -> str:
+    """Convert a YouTube watch URL to an embed URL."""
+    m = re.search(r'(?:youtube\.com/watch\?v=|youtu\.be/)([a-zA-Z0-9_-]{11})', url)
+    if m:
+        return f"https://www.youtube.com/embed/{m.group(1)}"
+    return url
 
 
 def main():
@@ -38,6 +47,7 @@ def main():
     results = []
     for url, title, location, lat, lng, quality, desc in rows:
         entry = {
+            "embed_url": youtube_to_embed(url),
             "url": url,
             "title": title or "",
             "location": location or "",
