@@ -504,35 +504,60 @@ def describe_frame(frame_path: str, retry: int = 0) -> str | None:
 
 
 def assess_view_quality(description: str) -> int | None:
-    """Score a webcam view quality 1-10 from the AI description."""
+    """Score a webcam view quality 1-10 from the AI description.
+
+    Sky coverage is the primary factor for sunrise/sunset suitability.
+    A hard ceiling is applied: low sky % cannot score high.
+    """
+    import re as _re
+
+    # Extract sky % from the description
+    sky_match = _re.search(r'(\d+)%\s*(?:of\s*(?:the\s*)?(?:frame|view|upper))', description, _re.IGNORECASE)
+    sky_pct = int(sky_match.group(1)) if sky_match else None
+
+    # Determine FOV width from description keywords
+    fov_words = ['panoramic', 'wide', 'broad', 'expansive', 'wide-angle', 'wide shot', 'wide view']
+    has_fov = any(w in description.lower() for w in fov_words)
+
+    # --- Hard ceiling based on sky % ---
+    if sky_pct is not None:
+        if sky_pct < 5:
+            max_score = 2
+        elif sky_pct < 10:
+            max_score = 3
+        elif sky_pct < 20:
+            max_score = 5
+        elif sky_pct < 40:
+            max_score = 7
+        else:
+            max_score = 10
+
+        # Wide FOV can add +1 but never exceed the ceiling
+        if has_fov and max_score < 10:
+            max_score = min(max_score + 1, 10)
+    else:
+        max_score = None  # no ceiling if sky % unknown
+
     try:
         payload = {
             "model": LLM_MODEL,
             "messages": [
                 {
                     "role": "user",
-                    "content": f"""Assess this webcam's view quality on a scale of 1-10 based on the AI description below.
+                    "content": f"""Score this webcam's suitability for viewing sunrise/sunset on a scale of 1-10.
 
-**Quality is proportional to sky visibility percentage and FOV width.**
+SCORING RULES (strict):
+- Sky coverage is the PRIMARY factor
+- 1-2: No sky, interior, close-up, or sky < 10%
+- 3-4: Sky 10-20% with narrow/tight framing
+- 5-6: Sky 20-40% or moderate FOV
+- 7-8: Sky 40-70% OR wide FOV with some sky
+- 9-10: Sky 70%+ AND wide panoramic FOV
 
-Scoring rules — score ONLY how suitable this view is for watching sunrise/sunset:
-
-- **Sky % × FOV width = quality**
-- 9-10: Sky visible in 70%+ of frame AND wide FOV (panoramic, open landscape/horizon)
-- 7-8: Sky visible in 40-70% of frame OR wide FOV with partial sky
-- 5-6: Sky visible in 20-40% of frame OR moderate FOV with some sky
-- 3-4: Sky visible in 10-20% of frame AND narrow/tight framing
-- 1-2: No sky or horizon — close-up objects, walls, feeders, interiors, parking lots, etc.
-
-The description should contain an estimate of sky coverage (e.g. 'sky visible in ~70% of frame'). Use this to guide your score. Wide FOV with less sky scores higher than narrow FOV with same sky %.
-
-Output ONLY a number 1-10. No explanation.
-
-Description:
-{description}"""
+Output ONLY the number 1-10. No text, no explanation."""
                 }
             ],
-            "max_tokens": 1024,
+            "max_tokens": 64,
             "temperature": 0,
         }
         req = urllib.request.Request(
@@ -546,20 +571,24 @@ Description:
             text = data["choices"][0]["message"]["content"].strip()
             # Reasoning models put answer in reasoning_content
             reasoning = data["choices"][0]["message"].get("reasoning_content", "")
+            val = None
             for src in [text, reasoning]:
-                import re
-                # Try to find "Result: X" or "Score: X" pattern anywhere in text
-                m = re.search(r'(?:result|score)[\s:]+(\d+)', src, re.IGNORECASE)
+                # Strict: just a single digit 1-9 or 10
+                m = _re.match(r'^\s*(\d+)\s*$', src)
                 if m:
                     val = int(m.group(1))
-                    if 1 <= val <= 10:
-                        return val
-                # Fall back: last standalone number matching 1-10 anywhere
-                nums = re.findall(r'\b([1-9]|10)\b', src)
-                if nums:
-                    val = int(nums[-1])
-                    if 1 <= val <= 10:
-                        return val
+                    break
+                # Also try "Score: X" or "Result: X" as first match
+                if not val:
+                    m = _re.search(r'(?:score|result)[\s:]+(\d+)', src, _re.IGNORECASE)
+                    if m:
+                        val = int(m.group(1))
+                        break
+            if val and 1 <= val <= 10:
+                # Apply hard ceiling based on sky %
+                if max_score is not None and val > max_score:
+                    val = max_score
+                return val
             return None
     except Exception:
         return None
