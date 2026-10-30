@@ -746,18 +746,7 @@ def main():
                 found = True
                 break
 
-            # AI description for unclassified — show frame first, then generate
-            logger.info("  Displaying with feh …")
-            feh_cmd = ["feh", "--auto-zoom", "--image-bg", "#333333", round_result["frame_path"]]
-            if not args.no_feh_timeout:
-                feh_cmd.insert(0, "timeout")
-                feh_cmd.insert(1, "300")
-            subprocess.Popen(
-                feh_cmd,
-                start_new_session=True,
-                close_fds=True,
-            )
-
+            # AI description for unclassified — generate first, then show frame
             # Assess image quality before LLM
             img_quality, img_reason = assess_image_quality(round_result["frame_path"])
             if img_quality < 4:
@@ -849,6 +838,18 @@ def main():
                 conn.commit()
                 logger.info(f"  Reliability: {_get_reliability(conn, video_id)}/10")
                 fail_count += 1
+
+            # Display frame with feh after AI description is generated
+            logger.info("  Displaying with feh …")
+            feh_cmd = ["feh", "--auto-zoom", "--image-bg", "#333333", round_result["frame_path"]]
+            if not args.no_feh_timeout:
+                feh_cmd.insert(0, "timeout")
+                feh_cmd.insert(1, "300")
+            subprocess.Popen(
+                feh_cmd,
+                start_new_session=True,
+                close_fds=True,
+            )
             found = True
             break
 
