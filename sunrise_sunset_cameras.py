@@ -776,6 +776,7 @@ def main():
                 conn.commit()
                 logger.info(f"  Reliability: {_get_reliability(conn, video_id)}/10")
                 logger.info(f"  View quality: {vq}/10 (auto-assessed: poor image)")
+                logger.info(f"  AI time:        0s (LLM skipped)")
                 logger.info(f"  Description:  {desc}")
                 rowid = conn.execute("SELECT rowid FROM webcams WHERE video_id = ?", (video_id,)).fetchone()[0]
                 classified_this_session.append((rowid, video_id, picked['title']))
