@@ -503,40 +503,13 @@ def describe_frame(frame_path: str, retry: int = 0) -> str | None:
         return None
 
 
-def assess_view_quality(description: str) -> int | None:
+def assess_view_quality(description: str) -> tuple[int | None, str]:
     """Score a webcam view quality 1-10 from the AI description.
 
-    Sky coverage is the primary factor for sunrise/sunset suitability.
-    A hard ceiling is applied: low sky % cannot score high.
+    Returns (score, raw_response) where raw_response contains the full
+    LLM content + reasoning for debugging quality issues.
     """
     import re as _re
-
-    # Extract sky % from the description
-    sky_match = _re.search(r'(\d+)%\s*(?:of\s*(?:the\s*)?(?:frame|view|upper))', description, _re.IGNORECASE)
-    sky_pct = int(sky_match.group(1)) if sky_match else None
-
-    # Determine FOV width from description keywords
-    fov_words = ['panoramic', 'wide', 'broad', 'expansive', 'wide-angle', 'wide shot', 'wide view']
-    has_fov = any(w in description.lower() for w in fov_words)
-
-    # --- Hard ceiling based on sky % ---
-    if sky_pct is not None:
-        if sky_pct < 5:
-            max_score = 2
-        elif sky_pct < 10:
-            max_score = 3
-        elif sky_pct < 20:
-            max_score = 5
-        elif sky_pct < 40:
-            max_score = 7
-        else:
-            max_score = 10
-
-        # Wide FOV can add +1 but never exceed the ceiling
-        if has_fov and max_score < 10:
-            max_score = min(max_score + 1, 10)
-    else:
-        max_score = None  # no ceiling if sky % unknown
 
     try:
         payload = {
@@ -554,7 +527,10 @@ SCORING RULES (strict):
 - 7-8: Sky 40-70% OR wide FOV with some sky
 - 9-10: Sky 70%+ AND wide panoramic FOV
 
-Output ONLY the number 1-10. No text, no explanation."""
+Output ONLY the number 1-10. No text, no explanation.
+
+Description:
+{description}"""
                 }
             ],
             "max_tokens": 1024,
@@ -571,6 +547,7 @@ Output ONLY the number 1-10. No text, no explanation."""
             text = data["choices"][0]["message"]["content"].strip()
             # Reasoning models put answer in reasoning_content
             reasoning = data["choices"][0]["message"].get("reasoning_content", "")
+            raw_response = f"content: {text}\nreasoning: {reasoning}"
             val = None
             for src in [text, reasoning]:
                 # Strict: just a single digit 1-9 or 10
@@ -585,22 +562,17 @@ Output ONLY the number 1-10. No text, no explanation."""
                         val = int(m.group(1))
                         break
             if val and 1 <= val <= 10:
-                # Apply hard ceiling based on sky %
-                if max_score is not None and val > max_score:
-                    val = max_score
-                return val
+                return val, raw_response
             # Fallback: last digit 1-10 anywhere in reasoning
             for src in [text, reasoning]:
                 nums = _re.findall(r'\b([1-9]|10)\b', src)
                 if nums:
                     val = int(nums[-1])
                     if 1 <= val <= 10:
-                        if max_score is not None and val > max_score:
-                            val = max_score
-                        return val
-            return None
+                        return val, raw_response
+            return None, raw_response
     except Exception:
-        return None
+        return None, ""
 
 
 # ---------------------------------------------------------------------------
@@ -839,16 +811,17 @@ def main():
 
                 # Retry view quality up to 3 times
                 vq = None
+                vq_reasoning = ""
                 for _attempt in range(3):
                     if _attempt > 0:
                         logger.info(f"  Retrying view quality (attempt {_attempt + 1}/3) …")
                         time.sleep(3)
-                    vq = assess_view_quality(desc)
+                    vq, vq_reasoning = assess_view_quality(desc)
                     if vq is not None:
                         break
                 conn.execute(
-                    "UPDATE webcams SET ai_description = ?, view_quality = ?, free_space = ? WHERE video_id = ?",
-                    (desc, vq, free_space, video_id),
+                    "UPDATE webcams SET ai_description = ?, view_quality = ?, free_space = ?, view_quality_reasoning = ? WHERE video_id = ?",
+                    (desc, vq, free_space, vq_reasoning, video_id),
                 )
                 _record_review(conn, video_id)
                 # Update reliability/resolution AFTER AI description
@@ -863,6 +836,8 @@ def main():
                     logger.info(f"  View quality:   {vq}/10")
                 else:
                     logger.info("  View quality:   N/A (LLM assessment failed)")
+                if vq_reasoning:
+                    logger.info(f"  Quality raw:    {vq_reasoning[:200]}")
                 logger.info(f"  Description:    {desc}")
                 logger.info(f"  AI time:        {_elapsed:.0f}s")
                 # Track for summary
