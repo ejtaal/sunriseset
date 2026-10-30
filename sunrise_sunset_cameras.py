@@ -563,9 +563,21 @@ Description:
                         break
             if val and 1 <= val <= 10:
                 return val, raw_response
-            # Fallback: last digit 1-10 anywhere in reasoning
+            # Fallback: last digit 1-10 on its own line or at start of reasoning
             for src in [text, reasoning]:
-                nums = _re.findall(r'\b([1-9]|10)\b', src)
+                for line in src.split("\n"):
+                    line = line.strip()
+                    m = _re.match(r'^\s*(\d{1,2})\s*$', line)
+                    if m:
+                        val = int(m.group(1))
+                        if 1 <= val <= 10:
+                            return val, raw_response
+            # Last resort: last digit 1-10 anywhere (but skip percentages)
+            for src in [text, reasoning]:
+                # Skip lines that look like percentages (e.g. "10%", "75%")
+                clean_lines = [_re.sub(r'\d+\s*%', '', l) for l in src.split("\n")]
+                clean = "\n".join(clean_lines)
+                nums = _re.findall(r'\b([1-9]|10)\b', clean)
                 if nums:
                     val = int(nums[-1])
                     if 1 <= val <= 10:
@@ -826,7 +838,7 @@ def main():
                 else:
                     logger.info("  View quality:   N/A (LLM assessment failed)")
                 if vq_reasoning:
-                    logger.info(f"  Quality raw:    {vq_reasoning[:200]}")
+                    logger.info(f"  Quality raw:    {vq_reasoning[:4000]}")
                 logger.info(f"  Description:    {desc}")
                 logger.info(f"  AI time:        {_elapsed:.0f}s")
                 # Track for summary
