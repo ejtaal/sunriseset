@@ -557,7 +557,7 @@ SCORING RULES (strict):
 Output ONLY the number 1-10. No text, no explanation."""
                 }
             ],
-            "max_tokens": 64,
+            "max_tokens": 1024,
             "temperature": 0,
         }
         req = urllib.request.Request(
@@ -566,7 +566,7 @@ Output ONLY the number 1-10. No text, no explanation."""
             headers={"Content-Type": "application/json"},
             method="POST"
         )
-        with urllib.request.urlopen(req, timeout=60) as resp:
+        with urllib.request.urlopen(req, timeout=120) as resp:
             data = __import__("json").loads(resp.read())
             text = data["choices"][0]["message"]["content"].strip()
             # Reasoning models put answer in reasoning_content
@@ -589,6 +589,15 @@ Output ONLY the number 1-10. No text, no explanation."""
                 if max_score is not None and val > max_score:
                     val = max_score
                 return val
+            # Fallback: last digit 1-10 anywhere in reasoning
+            for src in [text, reasoning]:
+                nums = _re.findall(r'\b([1-9]|10)\b', src)
+                if nums:
+                    val = int(nums[-1])
+                    if 1 <= val <= 10:
+                        if max_score is not None and val > max_score:
+                            val = max_score
+                        return val
             return None
     except Exception:
         return None
