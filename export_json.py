@@ -33,7 +33,9 @@ def main():
     conn = sqlite3.connect(args.db)
     rows = conn.execute(
         """
-        SELECT url, title, location, latitude, longitude,
+        SELECT COALESCE(url, youtube_watch_url, stream_url) as display_url,
+               youtube_watch_url,
+               title, location, latitude, longitude,
                view_quality, ai_description
         FROM webcams
         WHERE latitude IS NOT NULL AND latitude != ''
@@ -45,10 +47,10 @@ def main():
     conn.close()
 
     results = []
-    for url, title, location, lat, lng, quality, desc in rows:
+    for display_url, youtube_url, title, location, lat, lng, quality, desc in rows:
         entry = {
-            "embed_url": youtube_to_embed(url),
-            "url": url,
+            "embed_url": youtube_to_embed(youtube_url or display_url),
+            "url": display_url,
             "title": title or "",
             "location": location or "",
             "lat": float(lat),
