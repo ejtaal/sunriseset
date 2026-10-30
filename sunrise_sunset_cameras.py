@@ -584,7 +584,7 @@ def main():
     parser = argparse.ArgumentParser(description="Webcam sunrise/sunset finder")
     parser.add_argument("--classify", type=int, default=0, help="Run N iterations to classify streams (no feh)")
     parser.add_argument("--overwrite", action="store_true", help="Re-classify even if descriptions already exist")
-    parser.add_argument("--no-feh-timeout", action="store_true", help="Disable feh display timeout")
+    parser.add_argument("--feh-timeout", type=int, default=0, help="Set feh display timeout in seconds (default: none)")
     args = parser.parse_args()
 
     # Set up logging to file (and stdout)
@@ -843,20 +843,22 @@ def main():
 
             # Display frame with feh after AI description is generated
             logger.info("  Displaying with feh …")
+            import os as _os
+            env = dict(_os.environ)
             feh_cmd = ["feh", "--auto-zoom", "--image-bg", "#333333", round_result["frame_path"]]
-            if not args.no_feh_timeout:
+            if args.feh_timeout > 0:
                 feh_cmd.insert(0, "timeout")
-                feh_cmd.insert(1, "300")
+                feh_cmd.insert(1, str(args.feh_timeout))
             subprocess.Popen(
                 feh_cmd,
-                start_new_session=True,
+                env=env,
                 close_fds=True,
             )
             # Lower feh window behind others (non-fatal)
             try:
                 subprocess.run(["sh", "-c",
                     "sleep 0.5 && xdotool search --name feh windowlower 2>/dev/null"],
-                    capture_output=True, timeout=5)
+                    capture_output=True, timeout=5, env=env)
             except Exception:
                 pass
             found = True
