@@ -25,8 +25,8 @@
     .viewer-container {
       position: relative;
       width: 100%;
-      max-width: 960px;
-      aspect-ratio: 16 / 9;
+      max-width: 1200px;
+      height: 600px;
       border-radius: 12px;
       overflow: hidden;
       background: #111;
@@ -55,11 +55,17 @@
     }
 
     /* ─── Flat Map ──────────────────────────────────────────────── */
-    .map-container {
-      margin-top: 1.5rem;
+    .bottom-row {
+      display: flex;
+      gap: 1.25rem;
       width: 100%;
-      max-width: 960px;
-      height: 200px;
+      max-width: 1200px;
+      margin-top: 1.5rem;
+    }
+
+    .map-container {
+      flex: 0 0 33.333%;
+      height: 133px;
       border-radius: 12px;
       overflow: hidden;
       background: #050510;
@@ -75,9 +81,11 @@
 
     /* ── Info Panel ─────────────────────────────────────────────── */
     .info-panel {
-      margin-top: 1.25rem;
-      max-width: 960px;
-      width: 100%;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 1rem 0;
     }
 
     .cam-title {
@@ -106,18 +114,6 @@
       color: #f0c040;
       margin-bottom: 0.6rem;
       min-height: 1.2em;
-    }
-
-    .url-bar {
-      background: #161616;
-      border: 1px solid #2a2a2a;
-      border-radius: 8px;
-      padding: 0.7rem 1.1rem;
-      font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
-      font-size: 0.8rem;
-      color: #8ab4f8;
-      word-break: break-all;
-      margin-bottom: 0.6rem;
     }
 
     .yt-link {
@@ -155,19 +151,6 @@
       gap: 0.6rem;
     }
 
-    .status-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: #555;
-      transition: background 0.4s;
-    }
-
-    .status-dot.loading  { background: #ffa726; }
-    .status-dot.sunrise  { background: #ff7043; box-shadow: 0 0 8px rgba(255,112,67,0.5); }
-    .status-dot.sunset   { background: #ab47bc; box-shadow: 0 0 8px rgba(171,71,188,0.5); }
-    .status-dot.standby  { background: #555; }
-
     .quality-badge {
       display: inline-flex;
       align-items: center;
@@ -181,17 +164,6 @@
     .quality-badge.high   { background: #1b5e20; color: #a5d6a7; }
     .quality-badge.medium { background: #e65100; color: #ffe0b2; }
     .quality-badge.low    { background: #b71c1c; color: #ef9a9a; }
-
-    .mode-label {
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-      font-size: 0.72rem;
-    }
-
-    .mode-label.sunrise { color: #ff7043; }
-    .mode-label.sunset  { color: #ab47bc; }
-    .mode-label.standby { color: #888; }
 
     .countdown {
       color: #888;
@@ -260,16 +232,16 @@
     /* ── Thumbnail Banner ───────────────────────────────────────── */
     .thumb-banner {
       margin-top: 1.25rem;
-      max-width: 960px;
       width: 100%;
+      max-width: 1200px;
     }
 
     .thumb-banner-label {
-      font-size: 0.7rem;
+      font-size: 0.65rem;
       text-transform: uppercase;
       letter-spacing: 0.08em;
       color: #555;
-      margin-bottom: 0.5rem;
+      margin-bottom: 0.4rem;
     }
 
     .thumb-strip {
@@ -368,28 +340,25 @@
     <div class="loading-overlay" id="loading-overlay">Loading cameras…</div>
   </div>
 
-  <div class="map-container">
-    <canvas id="map-canvas"></canvas>
-  </div>
+  <div class="bottom-row">
+    <div class="map-container">
+      <canvas id="map-canvas"></canvas>
+    </div>
 
-  <div class="info-panel">
-    <div class="cam-title" id="cam-title">Waiting for stream…</div>
-    <div class="cam-location" id="cam-location"></div>
-    <div class="url-bar" id="url-bar">—</div>
-    <div class="yt-link" id="yt-link"></div>
-    <div class="status-bar">
-      <div class="status-left">
-        <span class="status-dot" id="status-dot"></span>
-        <span class="mode-label" id="mode-label">Standby</span>
-        <span class="quality-badge" id="quality-badge">—</span>
-      </div>
-      <div class="status-right">
-        <div class="switch-slider">
-          <span>Switch:</span>
-          <input type="range" id="switch-slider" min="5" max="120" value="20" step="5">
-          <span id="switch-value">20s</span>
+    <div class="info-panel">
+      <div class="cam-title"><span id="cam-title">Waiting for stream…</span> <span class="quality-badge" id="quality-badge"></span> <span class="yt-link" id="yt-link"></span></div>
+      <div class="cam-location" id="cam-location"></div>
+      <div class="status-bar">
+        <div class="status-left">
+          <div class="switch-slider">
+            <span>Switch:</span>
+            <input type="range" id="switch-slider" min="5" max="120" value="20" step="5">
+            <span id="switch-value">20s</span>
+          </div>
         </div>
-        <span class="countdown" id="countdown"></span>
+        <div class="status-right">
+          <span class="countdown" id="countdown"></span>
+        </div>
       </div>
     </div>
   </div>
@@ -419,10 +388,7 @@
     const titleEl    = document.getElementById('cam-title');
     const locEl      = document.getElementById('cam-location');
     // Sun angle queried dynamically inside locEl by updateSunAngle()
-    const urlEl      = document.getElementById('url-bar');
     const ytLinkEl   = document.getElementById('yt-link');
-    const dotEl      = document.getElementById('status-dot');
-    const modeEl     = document.getElementById('mode-label');
     const qualityEl  = document.getElementById('quality-badge');
     const countdown  = document.getElementById('countdown');
     const thumbStrip = document.getElementById('thumb-strip');
@@ -459,7 +425,7 @@
 
     const mapCanvas = document.getElementById('map-canvas');
     const MAP_W = 960;
-    const MAP_H = 200;
+    const MAP_H = 133;
     mapCanvas.width = MAP_W;
     mapCanvas.height = MAP_H;
     mapCtx = mapCanvas.getContext('2d');
@@ -540,7 +506,7 @@
 
     function extractVideoId(url) {
       if (!url) return null;
-      const m = url.match(/youtube\.com\/(?:embed|watch\?v=|shorts\/)([^?&]+)/);
+      const m = url.match(/youtube\.com\/(?:embed\/|watch\?v=|shorts\/)([^?&]+)/);
       return m ? m[1] : null;
     }
 
@@ -709,6 +675,7 @@
 
           ctx.beginPath();
           let started = false;
+          let firstPx = null, firstPy = null;
           for (let i = 0; i < ring.length; i++) {
             const [lon, lat] = ring[i];
             if (lon == null || lat == null) continue;
@@ -722,6 +689,9 @@
                 if (dLon > 30 || dLat > 30) {
                   ctx.stroke();
                   ctx.beginPath();
+                  started = false;
+                  firstPx = null;
+                  firstPy = null;
                 }
               }
             }
@@ -730,12 +700,25 @@
             const py = latToY(lat);
             if (!started) {
               ctx.moveTo(px, py);
+              firstPx = px;
+              firstPy = py;
               started = true;
             } else {
               ctx.lineTo(px, py);
             }
           }
-          if (started) ctx.closePath();
+          // Only close if first and last points are close (avoid antimeridian wrap lines)
+          if (started && firstPx !== null && firstPy !== null) {
+            const lastPt = ring[ring.length - 1];
+            if (lastPt) {
+              const lastPx = lonToX(lastPt[0]);
+              const lastPy = latToY(lastPt[1]);
+              // Don't close if the first and last points are on opposite edges of the map
+              if (Math.abs(firstPx - lastPx) < MAP_W * 0.15) {
+                ctx.closePath();
+              }
+            }
+          }
           ctx.stroke();
         }
       }
@@ -793,7 +776,8 @@
     // ─── Display ───────────────────────────────────────────────────
 
     function updateInfo(camera, mode) {
-      titleEl.textContent = camera.title || 'Unnamed Camera';
+      const q = parseInt(camera.quality) || 0;
+      titleEl.innerHTML = (camera.title || 'Unnamed Camera') + ' <span class="quality-badge" id="quality-badge">' + (q ? 'Q' + q : '') + '</span>';
 
       locEl.innerHTML = '';
       if (camera.location) locEl.textContent = camera.location;
@@ -804,28 +788,12 @@
         locEl.innerHTML += `<span class="coords">${latStr}, ${lonStr}</span> <span class="sun-angle" id="sun-angle"></span>`;
       }
 
-      urlEl.textContent = camera.url;
-
-      // YouTube link
+      // YouTube link (in title line after quality badge)
       const videoId = extractVideoId(camera.embed_url || camera.url);
       const ytUrl = videoId ? `https://www.youtube.com/watch?v=${videoId}` : '';
       ytLinkEl.innerHTML = videoId ? `<a href="${ytUrl}" target="_blank" rel="noopener">Watch on YouTube ↗</a>` : '';
 
-      // Quality badge
-      const q = parseInt(camera.quality) || 0;
-      qualityEl.textContent = `Q${q}`;
-      qualityEl.className = 'quality-badge ' + (q >= 8 ? 'high' : q >= 5 ? 'medium' : 'low');
-
-      // Mode label
-      if (mode) {
-        modeEl.textContent = mode === 'sunrise' ? '☀ Sunrise' : '🌅 Sunset';
-        modeEl.className = 'mode-label ' + mode;
-        dotEl.className = 'status-dot ' + mode;
-      } else {
-        modeEl.textContent = 'Standby';
-        modeEl.className = 'mode-label standby';
-        dotEl.className = 'status-dot standby';
-      }
+      // Status dot color — removed, only Q badge remains
     }
 
     // ─── Camera Switching ──────────────────────────────────────────
@@ -890,11 +858,6 @@
       buildThumbnailBanner();
     }
 
-    function pickRandom(arr) {
-      if (arr.length === 0) return null;
-      return arr[Math.floor(Math.random() * arr.length)];
-    }
-
     // Find sunrise/sunset candidates: prefer quality > 5, fallback to no quality score
     function findCandidates(now, skipUrl) {
       const highQual = [];
@@ -927,21 +890,33 @@
       return highQual;
     }
 
+    // Find the candidate closest to the horizon (altitude nearest 0°)
+    function pickClosestToHorizon(candidates) {
+      if (candidates.length === 0) return null;
+      let best = candidates[0];
+      for (let i = 1; i < candidates.length; i++) {
+        if (Math.abs(candidates[i].pos.altitude) < Math.abs(best.pos.altitude)) {
+          best = candidates[i];
+        }
+      }
+      return best;
+    }
+
     function switchToNextCamera() {
       const now = new Date();
       const candidates = findCandidates(now, currentCamera?.embed_url);
 
       if (candidates.length > 0) {
-        const picked = pickRandom(candidates.map(c => c.camera));
-        const mode = candidates.find(c => c.camera === picked)?.mode || null;
-        showCamera(picked, mode);
+        const picked = pickClosestToHorizon(candidates);
+        const mode = picked?.mode || null;
+        showCamera(picked.camera, mode);
       } else {
         // No sunrise/sunset candidates at all — still show something
         const fallback = findCandidates(now);
         if (fallback.length > 0) {
-          const picked = pickRandom(fallback.map(c => c.camera));
-          const mode = fallback.find(c => c.camera === picked)?.mode || null;
-          showCamera(picked, mode);
+          const picked = pickClosestToHorizon(fallback);
+          const mode = picked?.mode || null;
+          showCamera(picked.camera, mode);
         }
       }
 
@@ -969,7 +944,8 @@
         }
       }
 
-      const picked = pickRandom(candidates.map(c => c.camera));
+      const best = pickClosestToHorizon(candidates);
+      const picked = best.camera;
       const nextIdx = (activeIdx + 1) % 2;
       const nextLayer = wrappers[nextIdx];
 
@@ -1003,17 +979,12 @@
       if (!currentCamera || currentCamera.lat == null || currentCamera.long == null) return;
       const sunPos = sunPosition(new Date(), currentCamera.lat, currentCamera.long);
 
-      let modeText = '';
-      if (currentMode === 'sunrise') {
-        modeText = '☀ Sunrise';
-      } else if (currentMode === 'sunset') {
-        modeText = '🌅 Sunset';
-      } else {
-        modeText = '☀ alt: ' + sunPos.altitude.toFixed(2) + '°  az: ' + sunPos.azimuth.toFixed(2) + '°';
-      }
+      let prefix = '';
+      if (currentMode === 'sunrise') prefix = '☀ Sunrise ';
+      else if (currentMode === 'sunset') prefix = '🌅 Sunset ';
 
       const el = document.getElementById('sun-angle');
-      if (el) el.textContent = modeText;
+      if (el) el.textContent = prefix + 'alt: ' + sunPos.altitude.toFixed(2) + '°  az: ' + sunPos.azimuth.toFixed(2) + '°';
     }
 
     // ─── Initialization ────────────────────────────────────────────
@@ -1091,19 +1062,21 @@
         console.log(`Loaded ${cameras.length} cameras`);
         overlay.textContent = 'Starting stream…';
 
-        // Always start with a sunrise/sunset camera
+        // Always start with the camera closest to sunrise/sunset
         const now = new Date();
         const srCandidates = findCandidates(now);
-        let initial;
+        let initial, initialMode = null;
         if (srCandidates.length > 0) {
-          initial = pickRandom(srCandidates.map(c => c.camera));
+          const best = pickClosestToHorizon(srCandidates);
+          initial = best.camera;
+          initialMode = best.mode;
         } else {
           // No sunrise/sunset right now, fall back to any camera
           const fallback = cameras.filter(c => (parseInt(c.quality) || 0) > MIN_QUALITY);
-          initial = fallback.length > 0 ? pickRandom(fallback) : cameras[0];
+          initial = fallback.length > 0 ? fallback[0] : cameras[0];
         }
 
-        showCamera(initial, srCandidates.find(c => c.camera === initial)?.mode || null);
+        showCamera(initial, initialMode);
 
         switchToNextCamera();
         switchTimer = setInterval(switchToNextCamera, currentInterval);
@@ -1112,7 +1085,10 @@
         countdownTimer = setInterval(tickCountdown, 1000);
         tickCountdown();
 
-        sunAngleTimer = setInterval(updateSunAngle, 1000);
+        // Sync slider display
+        sliderValue.textContent = sliderEl.value + 's';
+
+        sunAngleTimer = setInterval(updateSunAngle, 5000);
         updateSunAngle();
 
       } catch (err) {

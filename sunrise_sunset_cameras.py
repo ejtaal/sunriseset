@@ -334,6 +334,10 @@ def grab_live_frame(video_id: str, title: str = ""):
         # Read yt-dlp output for error message and YouTube title
         error = None
         yt_title = None
+        # Known yt-dlp status messages that are NOT titles
+        _ytdlp_status = {"downloading", "live", "waiting", "extractor", "fixup",
+                         "merging", "deleting", "reconnecting", "requesting",
+                         "file doesn't exist", "no information"}
         try:
             with open(tmp_ytdlp_log) as f:
                 log = f.read().strip()
@@ -352,7 +356,10 @@ def grab_live_frame(video_id: str, title: str = ""):
                             log, re.IGNORECASE
                         )
                     if title_match:
-                        yt_title = title_match.group(1).strip()
+                        candidate = title_match.group(1).strip()
+                        # Skip yt-dlp status messages
+                        if not any(candidate.lower().startswith(s) for s in _ytdlp_status):
+                            yt_title = candidate
 
                     # Extract the last error line
                     lines = log.split('\n')
@@ -784,6 +791,7 @@ def main():
                         "UPDATE webcams SET title = ? WHERE video_id = ?",
                         (yt_title, video_id),
                     )
+                    conn.commit()
                     logger.info(f"  Title updated: {yt_title[:100]}")
 
             if already_classified:

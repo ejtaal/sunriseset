@@ -40,7 +40,7 @@ def main():
         FROM webcams
         WHERE latitude IS NOT NULL AND latitude != ''
           AND longitude IS NOT NULL AND longitude != ''
-          AND view_quality IS NOT NULL
+          AND (view_quality IS NULL OR view_quality >= 5)
         ORDER BY title
         """
     ).fetchall()
