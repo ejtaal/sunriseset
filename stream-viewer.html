@@ -1,0 +1,1127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Webcam Stream Viewer</title>
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background: #0a0a0a;
+      color: #e0e0e0;
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 2rem;
+    }
+
+    .viewer-container {
+      position: relative;
+      width: 100%;
+      max-width: 960px;
+      aspect-ratio: 16 / 9;
+      border-radius: 12px;
+      overflow: hidden;
+      background: #111;
+      box-shadow: 0 0 40px rgba(0, 0, 0, 0.6);
+    }
+
+    .video-wrapper {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      transition: opacity 1s ease-in-out;
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    .video-wrapper.active {
+      opacity: 1;
+      pointer-events: auto;
+      z-index: 2;
+    }
+
+    .video-wrapper iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+    }
+
+    /* ─── Flat Map ──────────────────────────────────────────────── */
+    .map-container {
+      margin-top: 1.5rem;
+      width: 100%;
+      max-width: 960px;
+      height: 200px;
+      border-radius: 12px;
+      overflow: hidden;
+      background: #050510;
+      box-shadow: 0 0 30px rgba(0, 0, 0, 0.5);
+      position: relative;
+    }
+
+    #map-canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    /* ── Info Panel ─────────────────────────────────────────────── */
+    .info-panel {
+      margin-top: 1.25rem;
+      max-width: 960px;
+      width: 100%;
+    }
+
+    .cam-title {
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: #f0f0f0;
+      margin-bottom: 0.3rem;
+    }
+
+    .cam-location {
+      font-size: 0.85rem;
+      color: #888;
+      margin-bottom: 0.6rem;
+    }
+
+    .cam-location .coords {
+      font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+      font-size: 0.78rem;
+      color: #666;
+      margin-left: 0.3rem;
+    }
+
+    .sun-angle {
+      font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+      font-size: 0.8rem;
+      color: #f0c040;
+      margin-bottom: 0.6rem;
+      min-height: 1.2em;
+    }
+
+    .url-bar {
+      background: #161616;
+      border: 1px solid #2a2a2a;
+      border-radius: 8px;
+      padding: 0.7rem 1.1rem;
+      font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+      font-size: 0.8rem;
+      color: #8ab4f8;
+      word-break: break-all;
+      margin-bottom: 0.6rem;
+    }
+
+    .yt-link {
+      margin-top: 0.3rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .yt-link a {
+      display: inline-block;
+      color: #ff4444;
+      font-size: 0.85rem;
+      font-weight: 600;
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+
+    .yt-link a:hover {
+      color: #ff6666;
+      text-decoration: underline;
+    }
+
+    /* ── Status Bar ─────────────────────────────────────────────── */
+    .status-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      font-size: 0.78rem;
+    }
+
+    .status-left, .status-right {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #555;
+      transition: background 0.4s;
+    }
+
+    .status-dot.loading  { background: #ffa726; }
+    .status-dot.sunrise  { background: #ff7043; box-shadow: 0 0 8px rgba(255,112,67,0.5); }
+    .status-dot.sunset   { background: #ab47bc; box-shadow: 0 0 8px rgba(171,71,188,0.5); }
+    .status-dot.standby  { background: #555; }
+
+    .quality-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.15rem 0.55rem;
+      border-radius: 10px;
+      font-weight: 700;
+      font-size: 0.72rem;
+      letter-spacing: 0.03em;
+    }
+
+    .quality-badge.high   { background: #1b5e20; color: #a5d6a7; }
+    .quality-badge.medium { background: #e65100; color: #ffe0b2; }
+    .quality-badge.low    { background: #b71c1c; color: #ef9a9a; }
+
+    .mode-label {
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      font-size: 0.72rem;
+    }
+
+    .mode-label.sunrise { color: #ff7043; }
+    .mode-label.sunset  { color: #ab47bc; }
+    .mode-label.standby { color: #888; }
+
+    .countdown {
+      color: #888;
+      font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+      font-size: 0.75rem;
+    }
+
+    .switch-slider {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.72rem;
+      color: #666;
+    }
+
+    .switch-slider input[type="range"] {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 80px;
+      height: 3px;
+      background: #333;
+      border-radius: 2px;
+      outline: none;
+      cursor: pointer;
+    }
+
+    .switch-slider input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #8ab4f8;
+      cursor: pointer;
+    }
+
+    .switch-slider input[type="range"]::-moz-range-thumb {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #8ab4f8;
+      cursor: pointer;
+      border: none;
+    }
+
+    /* ── Loading overlay ────────────────────────────────────────── */
+    .loading-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(10, 10, 10, 0.85);
+      color: #888;
+      font-size: 0.9rem;
+      border-radius: 12px;
+      z-index: 10;
+      transition: opacity 0.6s;
+    }
+
+    .loading-overlay.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    /* ── Thumbnail Banner ───────────────────────────────────────── */
+    .thumb-banner {
+      margin-top: 1.25rem;
+      max-width: 960px;
+      width: 100%;
+    }
+
+    .thumb-banner-label {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #555;
+      margin-bottom: 0.5rem;
+    }
+
+    .thumb-strip {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding-bottom: 8px;
+      scrollbar-width: thin;
+      scrollbar-color: #333 transparent;
+    }
+
+    .thumb-strip::-webkit-scrollbar {
+      height: 4px;
+    }
+
+    .thumb-strip::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .thumb-strip::-webkit-scrollbar-thumb {
+      background: #333;
+      border-radius: 2px;
+    }
+
+    .thumb-item {
+      flex-shrink: 0;
+      width: 160px;
+      cursor: pointer;
+      border-radius: 6px;
+      overflow: hidden;
+      border: 2px solid transparent;
+      transition: border-color 0.3s, transform 0.2s, opacity 0.3s;
+      opacity: 0.7;
+      position: relative;
+    }
+
+    .thumb-item:hover {
+      transform: scale(1.03);
+      opacity: 1;
+    }
+
+    .thumb-item.active {
+      border-color: #8ab4f8;
+      opacity: 1;
+    }
+
+    .thumb-item img {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      display: block;
+      object-fit: cover;
+      background: #111;
+    }
+
+    .thumb-item .thumb-label {
+      background: #111;
+      padding: 0.35rem 0.45rem;
+      font-size: 0.68rem;
+      color: #aaa;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .thumb-item.active .thumb-label {
+      color: #8ab4f8;
+    }
+
+    .thumb-item .thumb-badge {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      padding: 1px 5px;
+      border-radius: 4px;
+      font-size: 0.6rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .thumb-item .thumb-badge.sunrise {
+      background: rgba(255, 112, 67, 0.85);
+      color: #fff;
+    }
+
+    .thumb-item .thumb-badge.sunset {
+      background: rgba(171, 71, 188, 0.85);
+      color: #fff;
+    }
+  </style>
+</head>
+<body>
+  <div class="viewer-container">
+    <div class="video-wrapper" id="video-layer-a"></div>
+    <div class="video-wrapper" id="video-layer-b"></div>
+    <div class="loading-overlay" id="loading-overlay">Loading cameras…</div>
+  </div>
+
+  <div class="map-container">
+    <canvas id="map-canvas"></canvas>
+  </div>
+
+  <div class="info-panel">
+    <div class="cam-title" id="cam-title">Waiting for stream…</div>
+    <div class="cam-location" id="cam-location"></div>
+    <div class="url-bar" id="url-bar">—</div>
+    <div class="yt-link" id="yt-link"></div>
+    <div class="status-bar">
+      <div class="status-left">
+        <span class="status-dot" id="status-dot"></span>
+        <span class="mode-label" id="mode-label">Standby</span>
+        <span class="quality-badge" id="quality-badge">—</span>
+      </div>
+      <div class="status-right">
+        <div class="switch-slider">
+          <span>Switch:</span>
+          <input type="range" id="switch-slider" min="5" max="120" value="20" step="5">
+          <span id="switch-value">20s</span>
+        </div>
+        <span class="countdown" id="countdown"></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="thumb-banner">
+    <div class="thumb-banner-label">Eligible streams (click to watch)</div>
+    <div class="thumb-strip" id="thumb-strip"></div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/topojson-client@3"></script>
+  <script>
+    // ─── Configuration ─────────────────────────────────────────────
+    const DATA_FILE          = 'data/webcams_export.json';
+    const SWITCH_INTERVAL    = 20000;    // 20 seconds in ms (default)
+    const MIN_QUALITY        = 5;        // quality score threshold (exclusive: >5)
+    const SUNRISE_LOW        = -2;       // degrees
+    const SUNRISE_HIGH       = -1;       // degrees
+    const SUNSET_LOW         = 0;        // degrees
+    const SUNSET_HIGH        = 2;        // degrees
+    // ─────────────────────────────────────────────────────────────────
+
+    const layerA    = document.getElementById('video-layer-a');
+    const layerB    = document.getElementById('video-layer-b');
+    const wrappers  = [layerA, layerB];
+    let   activeIdx = 0;   // which layer currently shows the video
+    const overlay    = document.getElementById('loading-overlay');
+    const titleEl    = document.getElementById('cam-title');
+    const locEl      = document.getElementById('cam-location');
+    // Sun angle queried dynamically inside locEl by updateSunAngle()
+    const urlEl      = document.getElementById('url-bar');
+    const ytLinkEl   = document.getElementById('yt-link');
+    const dotEl      = document.getElementById('status-dot');
+    const modeEl     = document.getElementById('mode-label');
+    const qualityEl  = document.getElementById('quality-badge');
+    const countdown  = document.getElementById('countdown');
+    const thumbStrip = document.getElementById('thumb-strip');
+
+    let cameras       = [];
+    let currentCamera = null;
+    let currentMode   = null;
+    let switchTimer   = null;
+    let countdownTimer = null;
+    let sunAngleTimer  = null;
+    let switchDeadline = null;
+    let currentInterval = SWITCH_INTERVAL;
+    let preLoadTimer  = null;  // timer to preload next stream in advance
+
+    const sliderEl     = document.getElementById('switch-slider');
+    const sliderValue  = document.getElementById('switch-value');
+
+    // Slider handler
+    sliderEl.addEventListener('input', () => {
+      currentInterval = parseInt(sliderEl.value) * 1000;
+      sliderValue.textContent = `${sliderEl.value}s`;
+      // Restart timer with new interval
+      clearInterval(switchTimer);
+      switchDeadline = Date.now() + currentInterval;
+      switchTimer = setInterval(switchToNextCamera, currentInterval);
+    });
+
+    // ─── Flat Map Setup ────────────────────────────────────────────
+    let mapCtx;
+    let mapLoaded = false;
+    let mapRings = []; // Array of [[lon,lat], ...] coordinate rings
+    let mapMarker = { lat: 0, lon: 0 };
+    let topoClient = null; // topojson-client library
+
+    const mapCanvas = document.getElementById('map-canvas');
+    const MAP_W = 960;
+    const MAP_H = 200;
+    mapCanvas.width = MAP_W;
+    mapCanvas.height = MAP_H;
+    mapCtx = mapCanvas.getContext('2d');
+
+    // ─── NOAA Solar Calculator (ported from Python) ────────────────
+
+    function julianDate(year, month, day, hour, minute, second) {
+      let y = year, m = month;
+      const d = day + hour / 24 + minute / 1440 + second / 86400;
+      if (m <= 2) { y -= 1; m += 12; }
+      const A = Math.floor(y / 100);
+      const B = 2 - A + Math.floor(A / 4);
+      return Math.floor(365.25 * (y + 4716)) + Math.floor(30.6001 * (m + 1)) + d + B - 1524.5;
+    }
+
+    function sunPosition(utcDate, lat, lon) {
+      const jd = julianDate(
+        utcDate.getUTCFullYear(),
+        utcDate.getUTCMonth() + 1,
+        utcDate.getUTCDate(),
+        utcDate.getUTCHours(),
+        utcDate.getUTCMinutes(),
+        utcDate.getUTCSeconds()
+      );
+      const T = (jd - 2451545.0) / 36525.0;
+
+      const L0 = (280.46646 + T * (36000.76983 + 0.0003032 * T)) % 360;
+      const M  = (357.52911 + T * (35999.05029 - 0.0001537 * T)) % 360;
+      const e  = 0.016708634 - T * (0.000042037 + 0.0000001267 * T);
+
+      const C = (
+        (1.914602 - T * (0.004817 + 0.000014 * T)) * Math.sin(rad(M))
+        + (0.019993 - 0.000101 * T) * Math.sin(rad(2 * M))
+        + 0.000289 * Math.sin(rad(3 * M))
+      );
+      const sunTrueLon = L0 + C;
+
+      const omega = 125.04 - 1934.136 * T;
+      const sunAppLon = sunTrueLon - 0.00569 - 0.00478 * Math.sin(rad(omega));
+
+      const obliqMean = 23 + (26 + (21.448 - T * (46.815 + T * (0.00059 - T * 0.001813))) / 60) / 60;
+      const obliqCorr = obliqMean + 0.00256 * Math.cos(rad(omega));
+      const decl = deg(Math.asin(Math.sin(rad(obliqCorr)) * Math.sin(rad(sunAppLon))));
+
+      // GMST (Greenwich Mean Sidereal Time)
+      const GMST = (280.46061837 + 360.98564736629 * (jd - 2451545.0)) % 360;
+
+      // Sun's right ascension (apparent) from ecliptic longitude
+      const RA = deg(Math.atan2(Math.cos(rad(obliqCorr)) * Math.sin(rad(sunAppLon)), Math.cos(rad(sunAppLon))));
+
+      // Hour angle = LST - RA = (GMST + lon) - RA
+      const hourAngle = ((GMST + lon - RA + 540) % 360) - 180;
+      const haNorm = hourAngle;
+
+      const sinAlt = (Math.sin(rad(lat)) * Math.sin(rad(decl))
+                   + Math.cos(rad(lat)) * Math.cos(rad(decl)) * Math.cos(rad(haNorm)));
+      const sinAltClamped = Math.max(-1, Math.min(1, sinAlt));
+      const altitude = deg(Math.asin(sinAltClamped));
+
+      const cosAz = (Math.sin(rad(lat)) * Math.sin(rad(decl)) - Math.sin(rad(altitude)))
+                  / (Math.cos(rad(lat)) * Math.cos(rad(altitude)));
+      const cosAzClamped = Math.max(-1, Math.min(1, cosAz));
+      let azimuth = deg(Math.acos(cosAzClamped));
+      if (haNorm > 0) azimuth = 360 - azimuth;
+
+      const isRising = haNorm < 0;
+
+      return { altitude, azimuth, isRising };
+    }
+
+    function isAtSunriseOrSunset(pos) {
+      const sunrise = pos.isRising && pos.altitude >= SUNRISE_LOW && pos.altitude <= SUNRISE_HIGH;
+      const sunset  = !pos.isRising && pos.altitude >= SUNSET_LOW && pos.altitude <= SUNSET_HIGH;
+      return sunrise ? 'sunrise' : (sunset ? 'sunset' : null);
+    }
+
+    // ─── Thumbnail Banner ──────────────────────────────────────────
+
+    function extractVideoId(url) {
+      if (!url) return null;
+      const m = url.match(/youtube\.com\/(?:embed|watch\?v=|shorts\/)([^?&]+)/);
+      return m ? m[1] : null;
+    }
+
+    function getThumbnailUrl(camera) {
+      const id = extractVideoId(camera.embed_url || camera.url);
+      return id ? `https://img.youtube.com/vi/${id}/maxresdefault.jpg` : null;
+    }
+
+    function buildThumbnailBanner() {
+      const now = new Date();
+      const eligible = findCandidates(now);
+
+      // If no high-quality candidates, fall back to any
+      if (eligible.length === 0) {
+        eligible.push(...findCandidates(now));
+      }
+
+      thumbStrip.innerHTML = '';
+
+      eligible.forEach(({ camera, mode }) => {
+        const thumbUrl = getThumbnailUrl(camera);
+        const item = document.createElement('div');
+        item.className = 'thumb-item' + (currentCamera && currentCamera === camera ? ' active' : '');
+
+        let badgeHTML = '';
+        if (mode === 'sunrise') badgeHTML = `<span class="thumb-badge sunrise">Sunrise</span>`;
+        else if (mode === 'sunset') badgeHTML = `<span class="thumb-badge sunset">Sunset</span>`;
+
+        item.innerHTML = `
+          ${badgeHTML}
+          <img src="${thumbUrl || ''}" alt="${camera.title}" loading="lazy"
+               onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 160 90%22><rect fill=%22%23111%22 width=%22160%22 height=%2290%22/><text fill=%22%23555%22 x=%2250%25%22 y=%2250%25%22 text-anchor=%22middle%22 dy=%22.3em%22 font-size=%2214%22>NO SIGNAL</text></svg>'">
+          <div class="thumb-label">${camera.title || 'Unnamed'}</div>
+        `;
+
+        item.addEventListener('click', () => {
+          switchToCamera(camera, mode);
+        });
+
+        thumbStrip.appendChild(item);
+      });
+    }
+
+    function updateActiveThumb() {
+      const items = thumbStrip.querySelectorAll('.thumb-item');
+      items.forEach(item => {
+        const title = item.querySelector('.thumb-label').textContent;
+        const cam = cameras.find(c => c.title === title);
+        item.classList.toggle('active', currentCamera && currentCamera === cam);
+      });
+    }
+
+    // ─── Helpers ───────────────────────────────────────────────────
+
+    function rad(deg) { return deg * Math.PI / 180; }
+    function deg(rad) { return rad * 180 / Math.PI; }
+
+    function formatCountdown(ms) {
+      if (ms <= 0) return '0s';
+      const total = Math.ceil(ms / 1000);
+      const m = Math.floor(total / 60);
+      const s = total % 60;
+      return m > 0 ? `${m}:${s.toString().padStart(2, '0')}` : `${s}s`;
+    }
+
+    function getEmbedUrl(camera) {
+      const match = camera.embed_url?.match(/youtube\.com\/embed\/([^?]+)/);
+      if (match) {
+        const id = match[1];
+        return `https://www.youtube.com/embed/${id}?autoplay=1&mute=1&loop=1&playlist=${id}`;
+      }
+      return camera.embed_url || camera.url;
+    }
+
+    // ─── Flat Map Functions ────────────────────────────────────────
+
+    function lonToX(lon) {
+      return ((lon + 180) / 360) * MAP_W;
+    }
+
+    function latToY(lat) {
+      return ((90 - lat) / 180) * MAP_H;
+    }
+
+    function drawFlatMap() {
+      const ctx = mapCtx;
+      ctx.clearRect(0, 0, MAP_W, MAP_H);
+
+      // Ocean background
+      ctx.fillStyle = '#0a1628';
+      ctx.fillRect(0, 0, MAP_W, MAP_H);
+
+      // Calculate day/night shading using sun position
+      const now = new Date();
+      const jd = julianDate(
+        now.getUTCFullYear(), now.getUTCMonth() + 1, now.getUTCDate(),
+        now.getUTCHours(), now.getUTCMinutes(), now.getUTCSeconds()
+      );
+      const T = (jd - 2451545.0) / 36525.0;
+      const L0 = (280.46646 + T * (36000.76983 + 0.0003032 * T)) % 360;
+      const M = (357.52911 + T * (35999.05029 - 0.0001537 * T)) % 360;
+      const e = 0.016708634 - T * (0.000042037 + 0.0000001267 * T);
+      const C = (1.914602 - T * (0.004817 + 0.000014 * T)) * Math.sin(rad(M))
+               + (0.019993 - 0.000101 * T) * Math.sin(rad(2 * M))
+               + 0.000289 * Math.sin(rad(3 * M));
+      const sunTrueLon = (L0 + C + 360) % 360;
+      const omega = 125.04 - 1934.136 * T;
+      const sunAppLon = sunTrueLon - 0.00569 - 0.00478 * Math.sin(rad(omega));
+      const obliqMean = 23 + (26 + (21.448 - T * (46.815 + T * (0.00059 - T * 0.001813))) / 60) / 60;
+      const obliqCorr = obliqMean + 0.00256 * Math.cos(rad(omega));
+      const decl = deg(Math.asin(Math.sin(rad(obliqCorr)) * Math.sin(rad(sunAppLon))));
+
+      // GMST (Greenwich Mean Sidereal Time)
+      const GMST = (280.46061837 + 360.98564736629 * (jd - 2451545.0)) % 360;
+
+      // Sun's right ascension (apparent)
+      const RA = deg(Math.atan2(Math.cos(rad(obliqCorr)) * Math.sin(rad(sunAppLon)), Math.cos(rad(sunAppLon))));
+
+      // Sub-solar longitude: where LST = RA → sunLon = RA - GMST
+      const sunLon = ((RA - GMST + 180) % 360 + 360) % 360 - 180;
+
+      // Draw day/night with smooth gradient using low-res canvas + bilinear upscaling
+      const SCALE = 4;
+      const dW = Math.ceil(MAP_W / SCALE);
+      const dH = Math.ceil(MAP_H / SCALE);
+      const dayNightCanvas = document.createElement('canvas');
+      dayNightCanvas.width = dW;
+      dayNightCanvas.height = dH;
+      const dctx = dayNightCanvas.getContext('2d');
+
+      for (let col = 0; col < dW; col++) {
+        const lon = (col / dW) * 360 - 180;
+        const ha = ((lon - sunLon + 360) % 360) - 180;
+
+        for (let row = 0; row < dH; row++) {
+          const lat = 90 - (row / dH) * 180;
+          const cosZenith = Math.sin(rad(lat)) * Math.sin(rad(decl))
+                          + Math.cos(rad(lat)) * Math.cos(rad(decl)) * Math.cos(rad(ha));
+
+          // Smooth blend: cosZenith > 0 = day, < 0 = night
+          const blend = (cosZenith + 0.05) / 0.4; // 0 = night, 1 = day
+          const dayA = Math.max(0, Math.min(1, blend)) * 0.22;
+          const nightA = Math.max(0, Math.min(1, 1 - blend)) * 0.6;
+
+          // Draw night base then day highlight on top
+          dctx.fillStyle = `rgba(0, 10, 40, ${nightA})`;
+          dctx.fillRect(col, row, 1, 1);
+          dctx.fillStyle = `rgba(255, 200, 50, ${dayA})`;
+          dctx.fillRect(col, row, 1, 1);
+        }
+      }
+
+      // Draw scaled up with bilinear smoothing for seamless gradient
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(dayNightCanvas, 0, 0, MAP_W, MAP_H);
+
+      // Draw country outlines from decoded rings
+      if (mapRings.length > 0) {
+        ctx.strokeStyle = '#2a4a6a';
+        ctx.lineWidth = 0.5;
+
+        for (let r = 0; r < mapRings.length; r++) {
+          const ring = mapRings[r];
+          if (!ring || ring.length < 2) continue;
+
+          ctx.beginPath();
+          let started = false;
+          for (let i = 0; i < ring.length; i++) {
+            const [lon, lat] = ring[i];
+            if (lon == null || lat == null) continue;
+
+            // Skip long lines that cross the antimeridian (wrap-around artifact)
+            if (i > 0 && started) {
+              const [prevLon, prevLat] = ring[i - 1];
+              if (prevLon != null && prevLat != null) {
+                const dLon = Math.abs(lon - prevLon);
+                const dLat = Math.abs(lat - prevLat);
+                if (dLon > 30 || dLat > 30) {
+                  ctx.stroke();
+                  ctx.beginPath();
+                }
+              }
+            }
+
+            const px = lonToX(lon);
+            const py = latToY(lat);
+            if (!started) {
+              ctx.moveTo(px, py);
+              started = true;
+            } else {
+              ctx.lineTo(px, py);
+            }
+          }
+          if (started) ctx.closePath();
+          ctx.stroke();
+        }
+      }
+
+      // Draw marker
+      if (mapMarker.lat !== 0 || mapMarker.lon !== 0) {
+        const mx = lonToX(mapMarker.lon);
+        const my = latToY(mapMarker.lat);
+
+        // Glow
+        ctx.beginPath();
+        ctx.arc(mx, my, 10, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255, 68, 68, 0.2)';
+        ctx.fill();
+
+        // Crosshair
+        ctx.strokeStyle = '#ff4444';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(mx - 8, my);
+        ctx.lineTo(mx + 8, my);
+        ctx.moveTo(mx, my - 8);
+        ctx.lineTo(mx, my + 8);
+        ctx.stroke();
+
+        // Center dot
+        ctx.beginPath();
+        ctx.arc(mx, my, 3, 0, Math.PI * 2);
+        ctx.fillStyle = '#ff4444';
+        ctx.fill();
+      }
+
+      // Grid lines (every 30°)
+      ctx.strokeStyle = 'rgba(100, 140, 180, 0.15)';
+      ctx.lineWidth = 0.5;
+      for (let lon = -180; lon <= 180; lon += 30) {
+        ctx.beginPath();
+        ctx.moveTo(lonToX(lon), 0);
+        ctx.lineTo(lonToX(lon), MAP_H);
+        ctx.stroke();
+      }
+      for (let lat = -90; lat <= 90; lat += 30) {
+        ctx.beginPath();
+        ctx.moveTo(0, latToY(lat));
+        ctx.lineTo(MAP_W, latToY(lat));
+        ctx.stroke();
+      }
+    }
+
+    function setCameraOnMap(lat, lon) {
+      mapMarker = { lat, lon };
+      drawFlatMap();
+    }
+
+    // ─── Display ───────────────────────────────────────────────────
+
+    function updateInfo(camera, mode) {
+      titleEl.textContent = camera.title || 'Unnamed Camera';
+
+      locEl.innerHTML = '';
+      if (camera.location) locEl.textContent = camera.location;
+
+      if (camera.lat != null && camera.long != null) {
+        const latStr = camera.lat.toFixed(4);
+        const lonStr = camera.long.toFixed(4);
+        locEl.innerHTML += `<span class="coords">${latStr}, ${lonStr}</span> <span class="sun-angle" id="sun-angle"></span>`;
+      }
+
+      urlEl.textContent = camera.url;
+
+      // YouTube link
+      const videoId = extractVideoId(camera.embed_url || camera.url);
+      const ytUrl = videoId ? `https://www.youtube.com/watch?v=${videoId}` : '';
+      ytLinkEl.innerHTML = videoId ? `<a href="${ytUrl}" target="_blank" rel="noopener">Watch on YouTube ↗</a>` : '';
+
+      // Quality badge
+      const q = parseInt(camera.quality) || 0;
+      qualityEl.textContent = `Q${q}`;
+      qualityEl.className = 'quality-badge ' + (q >= 8 ? 'high' : q >= 5 ? 'medium' : 'low');
+
+      // Mode label
+      if (mode) {
+        modeEl.textContent = mode === 'sunrise' ? '☀ Sunrise' : '🌅 Sunset';
+        modeEl.className = 'mode-label ' + mode;
+        dotEl.className = 'status-dot ' + mode;
+      } else {
+        modeEl.textContent = 'Standby';
+        modeEl.className = 'mode-label standby';
+        dotEl.className = 'status-dot standby';
+      }
+    }
+
+    // ─── Camera Switching ──────────────────────────────────────────
+
+    function showCamera(camera, mode) {
+      currentCamera = camera;
+      currentMode = mode;
+      updateInfo(camera, mode);
+
+      // Update map
+      if (camera.lat != null && camera.long != null) {
+        setCameraOnMap(camera.lat, camera.long);
+      }
+
+      const nextIdx = (activeIdx + 1) % 2;
+      const currentLayer = wrappers[activeIdx];
+      const nextLayer = wrappers[nextIdx];
+
+      const hasAnyExisting = wrappers.some(w => w.innerHTML.length > 0);
+
+      if (!hasAnyExisting) {
+        // First load: just show on layer A
+        const newIframe = document.createElement('iframe');
+        newIframe.src = getEmbedUrl(camera);
+        newIframe.allow = 'autoplay; encrypted-media; picture-in-picture';
+        newIframe.allowFullscreen = true;
+        currentLayer.appendChild(newIframe);
+        currentLayer.classList.add('active');
+        overlay.classList.add('hidden');
+        updateActiveThumb();
+        return;
+      }
+
+      // Create new iframe in the NEXT layer, start playing immediately
+      const newIframe = document.createElement('iframe');
+      newIframe.src = getEmbedUrl(camera);
+      newIframe.allow = 'autoplay; encrypted-media; picture-in-picture';
+      newIframe.allowFullscreen = true;
+      nextLayer.appendChild(newIframe);
+
+      // Defer removing old layer until new one becomes active
+      // This ensures the fade-out has content to animate against
+      requestAnimationFrame(() => {
+        void nextLayer.offsetHeight;
+        nextLayer.classList.add('active');
+        activeIdx = nextIdx;
+        updateActiveThumb();
+
+        // Now clear old layer (no transition, just remove)
+        setTimeout(() => {
+          currentLayer.innerHTML = '';
+        }, 50);
+      });
+
+      overlay.classList.add('hidden');
+    }
+
+    // Switch from thumbnail click — resets the auto-switch timer
+    function switchToCamera(camera, mode) {
+      showCamera(camera, mode);
+      switchDeadline = Date.now() + currentInterval;
+      buildThumbnailBanner();
+    }
+
+    function pickRandom(arr) {
+      if (arr.length === 0) return null;
+      return arr[Math.floor(Math.random() * arr.length)];
+    }
+
+    // Find sunrise/sunset candidates: prefer quality > 5, fallback to no quality score
+    function findCandidates(now, skipUrl) {
+      const highQual = [];
+      const noQual = [];
+      for (const cam of cameras) {
+        if (skipUrl && cam.embed_url === skipUrl) continue;
+        const pos = sunPosition(now, cam.lat, cam.long);
+        const mode = isAtSunriseOrSunset(pos);
+        if (!mode) continue;
+        const entry = { camera: cam, mode, pos };
+        const q = cam.quality;
+        if (q != null && q !== '' && parseInt(q) > MIN_QUALITY) {
+          highQual.push(entry);
+        } else if (q == null || q === '') {
+          // No quality score at all
+          noQual.push(entry);
+        }
+      }
+      if (highQual.length > 0) return highQual;
+      if (noQual.length > 0) return noQual;
+      // Last resort: any quality
+      for (const cam of cameras) {
+        if (skipUrl && cam.embed_url === skipUrl) continue;
+        const pos = sunPosition(now, cam.lat, cam.long);
+        const mode = isAtSunriseOrSunset(pos);
+        if (mode) {
+          highQual.push({ camera: cam, mode, pos });
+        }
+      }
+      return highQual;
+    }
+
+    function switchToNextCamera() {
+      const now = new Date();
+      const candidates = findCandidates(now, currentCamera?.embed_url);
+
+      if (candidates.length > 0) {
+        const picked = pickRandom(candidates.map(c => c.camera));
+        const mode = candidates.find(c => c.camera === picked)?.mode || null;
+        showCamera(picked, mode);
+      } else {
+        // No sunrise/sunset candidates at all — still show something
+        const fallback = findCandidates(now);
+        if (fallback.length > 0) {
+          const picked = pickRandom(fallback.map(c => c.camera));
+          const mode = fallback.find(c => c.camera === picked)?.mode || null;
+          showCamera(picked, mode);
+        }
+      }
+
+      switchDeadline = Date.now() + currentInterval;
+      buildThumbnailBanner();
+
+      // Schedule pre-load: add next stream to background layer 5s before switch
+      clearTimeout(preLoadTimer);
+      const preloadDelay = Math.max(1000, currentInterval - 5000);
+      preLoadTimer = setTimeout(() => {
+        preLoadNextCamera();
+      }, preloadDelay);
+    }
+
+    // Pre-load the next candidate camera in the background
+    function preLoadNextCamera() {
+      const now = new Date();
+      const candidates = findCandidates(now, currentCamera?.embed_url);
+      if (candidates.length === 0) {
+        const fallback = findCandidates(now);
+        if (fallback.length > 0) {
+          candidates.push(...fallback);
+        } else {
+          return;
+        }
+      }
+
+      const picked = pickRandom(candidates.map(c => c.camera));
+      const nextIdx = (activeIdx + 1) % 2;
+      const nextLayer = wrappers[nextIdx];
+
+      // Only pre-load if this layer is empty (not already showing the active stream)
+      if (nextIdx !== activeIdx || !nextLayer.innerHTML) {
+        const existingIframe = nextLayer.querySelector('iframe');
+        if (!existingIframe) {
+          const iframe = document.createElement('iframe');
+          iframe.src = getEmbedUrl(picked);
+          iframe.allow = 'autoplay; encrypted-media; picture-in-picture';
+          iframe.allowFullscreen = true;
+          nextLayer.appendChild(iframe);
+        }
+      }
+    }
+
+    // ─── Countdown Timer ───────────────────────────────────────────
+
+    function tickCountdown() {
+      const remaining = switchDeadline - Date.now();
+      if (remaining <= 0) {
+        countdown.textContent = 'Switching…';
+      } else {
+        countdown.textContent = `Next switch in ${formatCountdown(remaining)}`;
+      }
+    }
+
+    // ─── Sun Angle Timer ───────────────────────────────────────────
+
+    function updateSunAngle() {
+      if (!currentCamera || currentCamera.lat == null || currentCamera.long == null) return;
+      const sunPos = sunPosition(new Date(), currentCamera.lat, currentCamera.long);
+
+      let modeText = '';
+      if (currentMode === 'sunrise') {
+        modeText = '☀ Sunrise';
+      } else if (currentMode === 'sunset') {
+        modeText = '🌅 Sunset';
+      } else {
+        modeText = '☀ alt: ' + sunPos.altitude.toFixed(2) + '°  az: ' + sunPos.azimuth.toFixed(2) + '°';
+      }
+
+      const el = document.getElementById('sun-angle');
+      if (el) el.textContent = modeText;
+    }
+
+    // ─── Initialization ────────────────────────────────────────────
+
+    // ─── TopoJSON Arc Decoder ──────────────────────────────────────
+    // world-atlas format uses delta-encoded arc indices, not raw coordinates
+
+    // ─── Initialization ────────────────────────────────────────────
+
+    // Wait for topojson-client library to load
+    function waitForTopoJSON(fn) {
+      if (typeof topojson !== 'undefined') {
+        fn();
+      } else {
+        setTimeout(() => waitForTopoJSON(fn), 50);
+      }
+    }
+
+    function loadCountryBorders() {
+      fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json')
+        .then(r => r.json())
+        .then(topoData => {
+          // Use topojson-client to convert TopoJSON → GeoJSON
+          // Process both 'countries' and 'land' for maximum coverage
+          const allRings = [];
+
+          for (const key of ['countries', 'land']) {
+            const obj = topoData.objects[key];
+            if (!obj) continue;
+
+            const geojson = topojson.feature(topoData, obj);
+
+            for (const feature of geojson.features) {
+              const geom = feature.geometry;
+              if (!geom) continue;
+
+              if (geom.type === 'Polygon') {
+                for (const ring of geom.coordinates) {
+                  if (ring.length >= 2) allRings.push(ring.map(([lon, lat]) => [lon, lat]));
+                }
+              } else if (geom.type === 'MultiPolygon') {
+                for (const poly of geom.coordinates) {
+                  for (const ring of poly) {
+                    if (ring.length >= 2) allRings.push(ring.map(([lon, lat]) => [lon, lat]));
+                  }
+                }
+              }
+            }
+          }
+
+          mapRings = allRings;
+          mapLoaded = true;
+          console.log(`Loaded ${allRings.length} polygon rings via topojson-client`);
+          drawFlatMap();
+        })
+        .catch(e => console.warn('Failed to load map data:', e));
+    }
+
+    async function init() {
+      // Load country borders using topojson-client
+      waitForTopoJSON(() => {
+        loadCountryBorders();
+      });
+
+      // Initial map draw (empty, will be redrawn after countries load)
+      drawFlatMap();
+
+      try {
+        // Load cameras
+        const res = await fetch(DATA_FILE + '?t=' + Date.now());
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        cameras = await res.json();
+        if (!Array.isArray(cameras) || cameras.length === 0) throw new Error('No cameras found');
+
+        console.log(`Loaded ${cameras.length} cameras`);
+        overlay.textContent = 'Starting stream…';
+
+        // Always start with a sunrise/sunset camera
+        const now = new Date();
+        const srCandidates = findCandidates(now);
+        let initial;
+        if (srCandidates.length > 0) {
+          initial = pickRandom(srCandidates.map(c => c.camera));
+        } else {
+          // No sunrise/sunset right now, fall back to any camera
+          const fallback = cameras.filter(c => (parseInt(c.quality) || 0) > MIN_QUALITY);
+          initial = fallback.length > 0 ? pickRandom(fallback) : cameras[0];
+        }
+
+        showCamera(initial, srCandidates.find(c => c.camera === initial)?.mode || null);
+
+        switchToNextCamera();
+        switchTimer = setInterval(switchToNextCamera, currentInterval);
+        switchDeadline = Date.now() + currentInterval;
+
+        countdownTimer = setInterval(tickCountdown, 1000);
+        tickCountdown();
+
+        sunAngleTimer = setInterval(updateSunAngle, 1000);
+        updateSunAngle();
+
+      } catch (err) {
+        console.error('Init failed:', err);
+        overlay.textContent = `Error: ${err.message}`;
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>

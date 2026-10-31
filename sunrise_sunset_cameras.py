@@ -331,12 +331,29 @@ def grab_live_frame(video_id: str, title: str = ""):
             f'>"{tmp_ytdlp_log}" 2>&1'
         )
 
-        # Read yt-dlp output for error message
+        # Read yt-dlp output for error message and YouTube title
         error = None
+        yt_title = None
         try:
             with open(tmp_ytdlp_log) as f:
                 log = f.read().strip()
                 if log:
+                    # Extract YouTube title from yt-dlp log
+                    # Format: [youtube] <video_id>: Title: <title>
+                    #          [youtube] <video_id>: <title>
+                    title_match = re.search(
+                        r'\[youtube\]\s+' + re.escape(video_id) + r':\s*Title:\s*(.+?)(?:\s*$|\s*\[)',
+                        log, re.IGNORECASE
+                    )
+                    if not title_match:
+                        # Try alternate format: [youtube] <id>: <title>
+                        title_match = re.search(
+                            r'\[youtube\]\s+' + re.escape(video_id) + r':\s*(.+?)(?:\s*\n\[|\s*$)',
+                            log, re.IGNORECASE
+                        )
+                    if title_match:
+                        yt_title = title_match.group(1).strip()
+
                     # Extract the last error line
                     lines = log.split('\n')
                     for line in reversed(lines):
@@ -354,7 +371,7 @@ def grab_live_frame(video_id: str, title: str = ""):
             logger.info(f"  yt-dlp: {error}")
 
         if result != 0 or not os.path.isfile(tmp_mp4) or os.path.getsize(tmp_mp4) < 1000:
-            return {"frame_path": None, "resolution": None, "is_black": None, "error": error}
+            return {"frame_path": None, "resolution": None, "is_black": None, "error": error, "yt_title": yt_title}
 
         # Extract single frame at ~1 second into the clip
         ret = os.system(
@@ -363,7 +380,7 @@ def grab_live_frame(video_id: str, title: str = ""):
         )
 
         if ret != 0 or not os.path.isfile(tmp_jpg) or os.path.getsize(tmp_jpg) < 1000:
-            return {"frame_path": None, "resolution": None, "is_black": None}
+            return {"frame_path": None, "resolution": None, "is_black": None, "yt_title": yt_title}
 
         resolution = _get_frame_resolution(tmp_jpg)
         is_black = _is_black_or_frozen(tmp_jpg)
@@ -375,7 +392,7 @@ def grab_live_frame(video_id: str, title: str = ""):
             except Exception:
                 pass
 
-        return {"frame_path": tmp_jpg, "resolution": resolution, "is_black": is_black, "error": None}
+        return {"frame_path": tmp_jpg, "resolution": resolution, "is_black": is_black, "error": None, "yt_title": yt_title}
 
     finally:
         if os.path.isfile(tmp_mp4):
@@ -755,6 +772,19 @@ def main():
             logger.info(f"  Frame grabbed ({os.path.getsize(round_result['frame_path'])} bytes)")
             if round_result["resolution"]:
                 logger.info(f"  Resolution:  {round_result['resolution']}")
+
+            # Update DB title from YouTube if we got a new title
+            yt_title = round_result.get("yt_title")
+            if yt_title and yt_title.strip():
+                db_title = conn.execute(
+                    "SELECT title FROM webcams WHERE video_id = ?", (video_id,)
+                ).fetchone()[0]
+                if db_title != yt_title:
+                    conn.execute(
+                        "UPDATE webcams SET title = ? WHERE video_id = ?",
+                        (yt_title, video_id),
+                    )
+                    logger.info(f"  Title updated: {yt_title[:100]}")
 
             if already_classified:
                 # Already classified — update reliability/resolution and skip AI
