@@ -19,7 +19,7 @@
       flex-direction: column;
       align-items: center;
       min-height: 100vh;
-      padding: 2rem;
+      padding: 5px;
     }
 
     .viewer-container {
@@ -70,15 +70,22 @@
       min-width: 0;
     }
 
+    .map-info-row {
+      display: flex;
+      gap: 1.25rem;
+      align-items: flex-start;
+      margin-bottom: 0.75rem;
+    }
+
     .map-container {
-      width: 480px;
-      height: 200px;
+      flex: 0 0 320px;
+      width: 320px;
+      height: 133px;
       border-radius: 12px;
       overflow: hidden;
       background: #050510;
       box-shadow: 0 0 30px rgba(0, 0, 0, 0.5);
       position: relative;
-      margin-bottom: 0.75rem;
     }
 
     #map-canvas {
@@ -146,7 +153,7 @@
     .status-bar {
       display: flex;
       align-items: center;
-      justify-content: space-between;
+      justify-content: flex-end;
       flex-wrap: wrap;
       gap: 0.5rem;
       font-size: 0.78rem;
@@ -178,42 +185,65 @@
       font-size: 0.75rem;
     }
 
-    .switch-slider {
+    .switch-controls {
       display: flex;
       align-items: center;
-      gap: 0.4rem;
+      gap: 0.5rem;
       font-size: 0.72rem;
       color: #666;
+      flex-wrap: wrap;
     }
 
-    .switch-slider input[type="range"] {
-      -webkit-appearance: none;
-      appearance: none;
-      width: 80px;
-      height: 3px;
-      background: #333;
-      border-radius: 2px;
-      outline: none;
+    .switch-buttons {
+      display: flex;
+      gap: 4px;
+    }
+
+    .interval-btn {
+      background: #1a1a1a;
+      color: #888;
+      border: 1px solid #333;
+      border-radius: 4px;
+      padding: 0.25rem 0.5rem;
+      font-size: 0.7rem;
+      font-family: inherit;
       cursor: pointer;
+      transition: all 0.2s;
     }
 
-    .switch-slider input[type="range"]::-webkit-slider-thumb {
-      -webkit-appearance: none;
-      appearance: none;
-      width: 12px;
-      height: 12px;
-      border-radius: 50%;
+    .interval-btn:hover {
+      background: #2a2a2a;
+      color: #aaa;
+    }
+
+    .interval-btn.active {
       background: #8ab4f8;
-      cursor: pointer;
+      color: #111;
+      border-color: #8ab4f8;
     }
 
-    .switch-slider input[type="range"]::-moz-range-thumb {
-      width: 12px;
-      height: 12px;
-      border-radius: 50%;
-      background: #8ab4f8;
+    .pause-btn {
+      background: #1a1a1a;
+      color: #888;
+      border: 1px solid #333;
+      border-radius: 4px;
+      padding: 0.25rem 0.6rem;
+      font-size: 0.7rem;
+      font-family: inherit;
       cursor: pointer;
-      border: none;
+      transition: all 0.2s;
+      margin-left: 0.5rem;
+    }
+
+    .pause-btn:hover {
+      background: #2a2a2a;
+      color: #aaa;
+    }
+
+    .pause-btn.paused {
+      background: #e65100;
+      color: #fff;
+      border-color: #e65100;
     }
 
     /* ── Loading overlay ────────────────────────────────────────── */
@@ -355,21 +385,23 @@
         <div class="loading-overlay" id="loading-overlay">Loading cameras…</div>
       </div>
 
-      <div class="map-container">
-        <canvas id="map-canvas"></canvas>
-      </div>
-      <div class="info-panel">
-        <div class="cam-title"><span id="cam-title">Waiting for stream…</span> <span class="quality-badge" id="quality-badge"></span> <span class="yt-link" id="yt-link"></span></div>
-        <div class="cam-location" id="cam-location"></div>
-        <div class="status-bar">
-          <div class="status-left">
-            <div class="switch-slider">
-              <span>Switch:</span>
-              <input type="range" id="switch-slider" min="5" max="120" value="20" step="5">
-              <span id="switch-value">20s</span>
+      <div class="map-info-row">
+        <div class="map-container">
+          <canvas id="map-canvas"></canvas>
+        </div>
+        <div class="info-panel">
+          <div class="cam-title"><span id="cam-title">Waiting for stream…</span> <span class="quality-badge" id="quality-badge"></span> <span class="yt-link" id="yt-link"></span></div>
+          <div class="cam-location" id="cam-location"></div>
+          <div class="switch-controls">
+            <span>Interval:</span>
+            <div class="switch-buttons">
+              <button class="interval-btn" data-minutes="1">1m</button>
+              <button class="interval-btn" data-minutes="2">2m</button>
+              <button class="interval-btn active" data-minutes="5">5m</button>
+              <button class="interval-btn" data-minutes="10">10m</button>
+              <button class="interval-btn" data-minutes="20">20m</button>
             </div>
-          </div>
-          <div class="status-right">
+            <button class="pause-btn" id="pause-btn">⏸ Pause</button>
             <span class="countdown" id="countdown"></span>
           </div>
         </div>
@@ -386,7 +418,7 @@
   <script>
     // ─── Configuration ─────────────────────────────────────────────
     const DATA_FILE          = 'data/webcams_export.json';
-    const SWITCH_INTERVAL    = 20000;    // 20 seconds in ms (default)
+    const SWITCH_INTERVAL    = 300000;    // 5 minutes in ms (default)
     const MIN_QUALITY        = 5;        // quality score threshold (exclusive: >5)
     const SUNRISE_LOW        = -2;       // degrees
     const SUNRISE_HIGH       = -1;       // degrees
@@ -415,19 +447,42 @@
     let sunAngleTimer  = null;
     let switchDeadline = null;
     let currentInterval = SWITCH_INTERVAL;
-    let preLoadTimer  = null;  // timer to preload next stream in advance
+    let preLoadTimer  = null;
+    let paused        = false;
 
-    const sliderEl     = document.getElementById('switch-slider');
-    const sliderValue  = document.getElementById('switch-value');
+    const intervalBtns = document.querySelectorAll('.interval-btn');
+    const pauseBtn     = document.getElementById('pause-btn');
 
-    // Slider handler
-    sliderEl.addEventListener('input', () => {
-      currentInterval = parseInt(sliderEl.value) * 1000;
-      sliderValue.textContent = `${sliderEl.value}s`;
+    // Interval button handler
+    function setIntervalMinutes(mins) {
+      currentInterval = mins * 60 * 1000;
       // Restart timer with new interval
       clearInterval(switchTimer);
+      clearTimeout(preLoadTimer);
       switchDeadline = Date.now() + currentInterval;
       switchTimer = setInterval(switchToNextCamera, currentInterval);
+      // Update active button
+      intervalBtns.forEach(b => b.classList.toggle('active', parseInt(b.dataset.minutes) === mins));
+    }
+
+    intervalBtns.forEach(btn => {
+      btn.addEventListener('click', () => setIntervalMinutes(parseInt(btn.dataset.minutes)));
+    });
+
+    // Pause/Resume button
+    pauseBtn.addEventListener('click', () => {
+      paused = !paused;
+      if (paused) {
+        clearInterval(switchTimer);
+        clearTimeout(preLoadTimer);
+        pauseBtn.textContent = '▶ Resume';
+        pauseBtn.classList.add('paused');
+      } else {
+        switchDeadline = Date.now() + currentInterval;
+        switchTimer = setInterval(switchToNextCamera, currentInterval);
+        pauseBtn.textContent = '⏸ Pause';
+        pauseBtn.classList.remove('paused');
+      }
     });
 
     // ─── Flat Map Setup ────────────────────────────────────────────
@@ -979,6 +1034,10 @@
     // ─── Countdown Timer ───────────────────────────────────────────
 
     function tickCountdown() {
+      if (paused) {
+        countdown.textContent = 'PAUSED';
+        return;
+      }
       const remaining = switchDeadline - Date.now();
       if (remaining <= 0) {
         countdown.textContent = 'Switching…';
@@ -1099,8 +1158,8 @@
         countdownTimer = setInterval(tickCountdown, 1000);
         tickCountdown();
 
-        // Sync slider display
-        sliderValue.textContent = sliderEl.value + 's';
+        // Set initial active interval button
+        intervalBtns.forEach(b => b.classList.toggle('active', parseInt(b.dataset.minutes) === 5));
 
         sunAngleTimer = setInterval(updateSunAngle, 5000);
         updateSunAngle();

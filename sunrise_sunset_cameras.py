@@ -623,7 +623,7 @@ def main():
     parser.add_argument("--feh-timeout", type=int, default=0, help="Set feh display timeout in seconds (default: none)")
     args = parser.parse_args()
 
-    # Set up logging to stdout (shell handles file redirection)
+    # Set up logging to stdout and file
     logger = logging.getLogger("classify")
     logger.setLevel(logging.INFO)
     logger.propagate = False
@@ -632,6 +632,9 @@ def main():
         sh = logging.StreamHandler(sys.stdout)
         sh.setFormatter(fmt)
         logger.addHandler(sh)
+        fh = logging.FileHandler(LOG_FILE)
+        fh.setFormatter(fmt)
+        logger.addHandler(fh)
 
     logger.info("=" * 70)
     logger.info("📷 Webcam Sunrise/Sunset — Random Pick" if args.classify == 0 else "📷 Webcam Stream Classifier")
