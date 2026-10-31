@@ -673,7 +673,7 @@
 
       for (let col = 0; col < dW; col++) {
         const lon = (col / dW) * 360 - 180;
-        const ha = ((lon - sunLon + 360) % 360) - 180;
+        const ha = lon - sunLon;
 
         for (let row = 0; row < dH; row++) {
           const lat = 90 - (row / dH) * 180;
