@@ -25,7 +25,6 @@
     .viewer-container {
       position: relative;
       width: 100%;
-      max-width: 1200px;
       height: 600px;
       border-radius: 12px;
       overflow: hidden;
@@ -54,23 +53,32 @@
       border: none;
     }
 
-    /* ─── Flat Map ──────────────────────────────────────────────── */
-    .bottom-row {
+    /* ─── Main Layout ─────────────────────────────────────────────── */
+    .main-layout {
       display: flex;
-      gap: 1.25rem;
       width: 100%;
-      max-width: 1200px;
+      align-items: flex-start;
       margin-top: 1.5rem;
+      gap: 1.5rem;
+    }
+
+    .col-left {
+      flex: 1;
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
     }
 
     .map-container {
-      flex: 0 0 33.333%;
-      height: 133px;
+      width: 480px;
+      height: 200px;
       border-radius: 12px;
       overflow: hidden;
       background: #050510;
       box-shadow: 0 0 30px rgba(0, 0, 0, 0.5);
       position: relative;
+      margin-bottom: 0.75rem;
     }
 
     #map-canvas {
@@ -81,11 +89,10 @@
 
     /* ── Info Panel ─────────────────────────────────────────────── */
     .info-panel {
-      flex: 1;
       display: flex;
       flex-direction: column;
-      justify-content: center;
-      padding: 1rem 0;
+      padding: 0.75rem 0;
+      gap: 0.4rem;
     }
 
     .cam-title {
@@ -229,11 +236,14 @@
       pointer-events: none;
     }
 
-    /* ── Thumbnail Banner ───────────────────────────────────────── */
-    .thumb-banner {
-      margin-top: 1.25rem;
-      width: 100%;
-      max-width: 1200px;
+    /* ── Thumbnail Column (far right) ──────────────────────────── */
+    .col-right {
+      flex: 0 0 auto;
+      display: flex;
+      flex-direction: column;
+      min-width: 180px;
+      max-width: 240px;
+      width: 200px;
     }
 
     .thumb-banner-label {
@@ -242,13 +252,16 @@
       letter-spacing: 0.08em;
       color: #555;
       margin-bottom: 0.4rem;
+      flex-shrink: 0;
     }
 
     .thumb-strip {
       display: flex;
-      gap: 8px;
-      overflow-x: auto;
-      padding-bottom: 8px;
+      flex-direction: column;
+      gap: 6px;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding-right: 4px;
       scrollbar-width: thin;
       scrollbar-color: #333 transparent;
     }
@@ -267,8 +280,8 @@
     }
 
     .thumb-item {
-      flex-shrink: 0;
-      width: 160px;
+      flex: 0 0 auto;
+      width: 100%;
       cursor: pointer;
       border-radius: 6px;
       overflow: hidden;
@@ -334,38 +347,39 @@
   </style>
 </head>
 <body>
-  <div class="viewer-container">
-    <div class="video-wrapper" id="video-layer-a"></div>
-    <div class="video-wrapper" id="video-layer-b"></div>
-    <div class="loading-overlay" id="loading-overlay">Loading cameras…</div>
-  </div>
+  <div class="main-layout">
+    <div class="col-left">
+      <div class="viewer-container">
+        <div class="video-wrapper" id="video-layer-a"></div>
+        <div class="video-wrapper" id="video-layer-b"></div>
+        <div class="loading-overlay" id="loading-overlay">Loading cameras…</div>
+      </div>
 
-  <div class="bottom-row">
-    <div class="map-container">
-      <canvas id="map-canvas"></canvas>
-    </div>
-
-    <div class="info-panel">
-      <div class="cam-title"><span id="cam-title">Waiting for stream…</span> <span class="quality-badge" id="quality-badge"></span> <span class="yt-link" id="yt-link"></span></div>
-      <div class="cam-location" id="cam-location"></div>
-      <div class="status-bar">
-        <div class="status-left">
-          <div class="switch-slider">
-            <span>Switch:</span>
-            <input type="range" id="switch-slider" min="5" max="120" value="20" step="5">
-            <span id="switch-value">20s</span>
+      <div class="map-container">
+        <canvas id="map-canvas"></canvas>
+      </div>
+      <div class="info-panel">
+        <div class="cam-title"><span id="cam-title">Waiting for stream…</span> <span class="quality-badge" id="quality-badge"></span> <span class="yt-link" id="yt-link"></span></div>
+        <div class="cam-location" id="cam-location"></div>
+        <div class="status-bar">
+          <div class="status-left">
+            <div class="switch-slider">
+              <span>Switch:</span>
+              <input type="range" id="switch-slider" min="5" max="120" value="20" step="5">
+              <span id="switch-value">20s</span>
+            </div>
           </div>
-        </div>
-        <div class="status-right">
-          <span class="countdown" id="countdown"></span>
+          <div class="status-right">
+            <span class="countdown" id="countdown"></span>
+          </div>
         </div>
       </div>
     </div>
-  </div>
 
-  <div class="thumb-banner">
-    <div class="thumb-banner-label">Eligible streams (click to watch)</div>
-    <div class="thumb-strip" id="thumb-strip"></div>
+    <div class="col-right">
+      <div class="thumb-banner-label">Eligible streams</div>
+      <div class="thumb-strip" id="thumb-strip"></div>
+    </div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/topojson-client@3"></script>

@@ -623,15 +623,12 @@ def main():
     parser.add_argument("--feh-timeout", type=int, default=0, help="Set feh display timeout in seconds (default: none)")
     args = parser.parse_args()
 
-    # Set up logging to file (and stdout)
+    # Set up logging to stdout (shell handles file redirection)
     logger = logging.getLogger("classify")
     logger.setLevel(logging.INFO)
     logger.propagate = False
     if not logger.handlers:
         fmt = logging.Formatter("%(asctime)s %(message)s", datefmt="%H:%M:%S")
-        fh = logging.FileHandler(LOG_FILE, mode="a")
-        fh.setFormatter(fmt)
-        logger.addHandler(fh)
         sh = logging.StreamHandler(sys.stdout)
         sh.setFormatter(fmt)
         logger.addHandler(sh)

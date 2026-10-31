@@ -48,6 +48,9 @@ def main():
 
     results = []
     for display_url, youtube_url, title, location, lat, lng, quality, desc in rows:
+        # Skip liveworldwebcams.com URLs
+        if display_url and "liveworldwebcams.com" in display_url:
+            continue
         entry = {
             "embed_url": youtube_to_embed(youtube_url or display_url),
             "url": display_url,
